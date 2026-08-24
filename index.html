@@ -177,6 +177,33 @@
     font-size:10.5px; font-weight:700; padding:1px 7px; margin-top:2px;
   }
 
+  /* ---------- MODAL — checklist kaitkan ke menu ---------- */
+  .menu-tag-list{ display:flex; flex-wrap:wrap; gap:7px; }
+  .menu-tag{
+    display:inline-flex; align-items:center; border:1.5px solid var(--line); background:var(--paper);
+    color:var(--muted); font-size:12.5px; font-weight:700; padding:7px 12px; border-radius:100px;
+    cursor:pointer; user-select:none; transition:border-color .15s ease, background .15s ease, color .15s ease;
+  }
+  .menu-tag:active{ transform:scale(0.96); }
+  .menu-tag.checked{ border-color:var(--ink); background:var(--ink); color:var(--cream); }
+  .menu-tag-empty{ font-size:12.5px; color:var(--muted); }
+  .menu-tag-mini{
+    display:inline-block; background:#EFEAD9; color:var(--ink-2); font-size:10.5px; font-weight:700;
+    padding:1.5px 7px; border-radius:100px; margin:2px 4px 0 0;
+  }
+
+  /* ---------- DASHBOARD — margin per menu ---------- */
+  .margin-row{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:8px 2px; border-bottom:1px solid var(--line);
+  }
+  .margin-row:last-child{ border-bottom:none; }
+  .margin-row .mr-name{ font-size:13px; font-weight:700; }
+  .margin-row .mr-sub{ font-size:11px; color:var(--muted); margin-top:1px; }
+  .margin-row .mr-laba{ font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:13px; text-align:right; white-space:nowrap; }
+  .margin-row .mr-laba.neg{ color:var(--rust); }
+  .margin-row .mr-margin{ font-size:11px; color:var(--muted); text-align:right; margin-top:1px; }
+
   .manual-item-row{ display:none; align-items:flex-end; gap:8px; margin-bottom:12px; }
   .manual-item-row .btn{ flex:0 0 auto; padding:11px 14px; }
 
@@ -419,6 +446,13 @@
         <p class="hint">Total omzet per item, digabung semua sesi.</p>
         <div class="chart-wrap"><canvas id="chartMenu"></canvas></div>
       </div>
+      <div class="chart-card">
+        <h3>Laba per Menu</h3>
+        <p class="hint">Omzet vs modal yang dikaitkan ke tiap menu — menu paling laku belum tentu paling untung.</p>
+        <div class="chart-wrap"><canvas id="chartLabaMenu"></canvas></div>
+        <div id="tabelMarginMenu" style="margin-top:10px;"></div>
+        <p class="hint" id="modalUmumHint" style="margin:8px 0 0;"></p>
+      </div>
     </section>
     <section class="block">
       <p class="block-title">Pengaturan</p>
@@ -502,6 +536,10 @@
           <datalist id="masterBahanList"></datalist>
         </div>
         <div class="field"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="mdJumlah" placeholder="0"></div>
+        <div class="field">
+          <label>Kaitkan ke Menu <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(opsional — pilih menu yang pakai belanja ini, boleh lebih dari satu. Kosong = modal umum)</span></label>
+          <div class="menu-tag-list" id="mdMenuChecklist"></div>
+        </div>
         <div class="field-row">
           <div class="field"><label>Keterangan</label><input type="text" id="mdKeterangan" placeholder="opsional"></div>
           <div class="field"><label>Nama Pengisi</label><input type="text" id="mdPengisi" placeholder="Nama kamu"></div>
@@ -748,6 +786,7 @@
       var el = document.getElementById(id);
       if (el) data[id] = el.value;
     });
+    if (formKey === 'modal') data.__menuTerkait = getMdMenuChecked();
     localStorage.setItem(DRAFT_PREFIX + formKey, JSON.stringify(data));
     var noteMap = {modal:'mdDraftNote', pemasukanLain:'plDraftNote', inventaris:'invDraftNote', kegiatan:'kgDraftNote'};
     var note = document.getElementById(noteMap[formKey]);
@@ -765,6 +804,9 @@
           var el = document.getElementById(id);
           if (el && data[id]) { el.value = data[id]; any = true; }
         });
+        if (formKey === 'modal' && data.__menuTerkait && data.__menuTerkait.length){
+          setMdMenuChecked(data.__menuTerkait); any = true;
+        }
         if (any) toast('Draf isian sebelumnya dipulihkan otomatis');
       } catch(e){}
     });
@@ -777,6 +819,7 @@
       var el = document.getElementById(id);
       if (el && id !== 'txKasir' && id !== 'mdPengisi') el.value = '';
     });
+    if (formKey === 'modal') setMdMenuChecked([]);
     var noteMap = {modal:'mdDraftNote', pemasukanLain:'plDraftNote', inventaris:'invDraftNote', kegiatan:'kgDraftNote'};
     var note = document.getElementById(noteMap[formKey]);
     if (note) note.classList.remove('show');
@@ -806,6 +849,45 @@
         '<span class="mc-price">'+rupiah(m.harga)+(inCart ? '<span class="mc-badge">'+inCart.qty+'x</span>' : '')+'</span>' +
       '</button>';
     }).join('');
+    renderModalMenuChecklist();
+  }
+
+  // ============================================================
+  // MODAL / BELANJA — checklist "kaitkan ke menu" supaya satu
+  // belanja (mis. kemasan kotak) bisa ditandai dipakai buat
+  // beberapa menu sekaligus. Dipertahankan lewat data-nama di tiap
+  // tag (bukan id menu) supaya tetap valid walau menu diedit/dihapus.
+  // ============================================================
+  function renderModalMenuChecklist(){
+    var wrap = document.getElementById('mdMenuChecklist');
+    if (!wrap) return;
+    var checkedBefore = getMdMenuChecked();
+    var menu = (BOOT && BOOT.daftarMenu) || [];
+    if (!menu.length){
+      wrap.innerHTML = '<div class="menu-tag-empty">Belum ada menu. Tambahkan dulu di tab Menu.</div>';
+      return;
+    }
+    wrap.innerHTML = menu.map(function(m){
+      var checked = checkedBefore.indexOf(m.nama) > -1;
+      return '<button type="button" class="menu-tag'+(checked?' checked':'')+'" data-nama="'+escapeHtml(m.nama)+'" onclick="toggleMdMenuTag(this)">'+escapeHtml(m.nama)+'</button>';
+    }).join('');
+  }
+
+  function toggleMdMenuTag(el){ el.classList.toggle('checked'); saveDraft('modal'); }
+
+  function getMdMenuChecked(){
+    var wrap = document.getElementById('mdMenuChecklist');
+    if (!wrap) return [];
+    return Array.prototype.slice.call(wrap.querySelectorAll('.menu-tag.checked')).map(function(el){ return el.dataset.nama; });
+  }
+
+  function setMdMenuChecked(names){
+    var wrap = document.getElementById('mdMenuChecklist');
+    if (!wrap) return;
+    names = names || [];
+    Array.prototype.slice.call(wrap.querySelectorAll('.menu-tag')).forEach(function(el){
+      el.classList.toggle('checked', names.indexOf(el.dataset.nama) > -1);
+    });
   }
 
   function toggleManualItemRow(){
@@ -1101,12 +1183,15 @@
     var jumlah = parseRibuan(document.getElementById('mdJumlah').value);
     var ket = document.getElementById('mdKeterangan').value.trim();
     var pengisi = document.getElementById('mdPengisi').value.trim();
+    var menuTerkait = getMdMenuChecked();
     if (!item || jumlah <= 0){ toast('Isi nama bahan dan jumlah dulu ya.'); return; }
 
     var clientId = uuid();
-    var payload = { sesiId: BOOT.sesiAktif.ID, item: item, jumlah: jumlah, keterangan: ket, pengisi: pengisi, clientId: clientId };
+    var payload = { sesiId: BOOT.sesiAktif.ID, item: item, jumlah: jumlah, keterangan: ket, pengisi: pengisi, menuTerkait: menuTerkait, clientId: clientId };
 
-    addFeedOptimistic({ clientId: clientId, type:'modal', title: item, sub: ket || 'Modal belanja', value: rupiah(jumlah), pending:true });
+    var subLabel = ket || 'Modal belanja';
+    if (menuTerkait.length) subLabel += ' · untuk ' + menuTerkait.join(', ');
+    addFeedOptimistic({ clientId: clientId, type:'modal', title: item, sub: subLabel, value: rupiah(jumlah), pending:true });
     pushOutbox({ clientId: clientId, type:'modal', payload: payload });
     localStorage.setItem('besic_last_pengisi', pengisi);
     clearDraft('modal');
@@ -1197,7 +1282,9 @@
       fromServer.push({ clientId: it.id, type:'pemasukan', title: it.item, sub: it.qty+' x '+rupiah(it.hargaSatuan)+' · '+(it.kasir||'-')+' · '+it.waktu+badge, value: rupiah(it.total), pending:false, statusBayar: it.statusBayar });
     });
     sesi.itemsModal.forEach(function(it){
-      fromServer.push({ clientId: it.id, type:'modal', title: it.item, sub: (it.keterangan||'Modal belanja')+' · '+it.waktu, value: rupiah(it.jumlah), pending:false });
+      var sub = (it.keterangan||'Modal belanja')+' · '+it.waktu;
+      if (it.menuTerkait && it.menuTerkait.length) sub += ' · untuk ' + it.menuTerkait.join(', ');
+      fromServer.push({ clientId: it.id, type:'modal', title: it.item, sub: sub, value: rupiah(it.jumlah), pending:false });
     });
     sesi.itemsPemasukanLain.forEach(function(it){
       fromServer.push({ clientId: it.id, type:'pemasukanLain', title: it.item, sub: (it.keterangan||'Pemasukan lainnya')+' · '+it.waktu, value: rupiah(it.jumlah), pending:false });
@@ -1252,7 +1339,7 @@
     if (type === 'modal'){
       var m = sesi.itemsModal.filter(function(x){ return x.id === id; })[0];
       if (!m){ toast('Data belum sinkron, coba muat ulang dulu.'); return; }
-      openEditEntry('modal', id, { item: m.item, jumlah: m.jumlah, keterangan: m.keterangan, pengisi: m.pengisi });
+      openEditEntry('modal', id, { item: m.item, jumlah: m.jumlah, keterangan: m.keterangan, pengisi: m.pengisi, menuTerkait: m.menuTerkait || [] });
     } else if (type === 'pemasukanLain'){
       var p = sesi.itemsPemasukanLain.filter(function(x){ return x.id === id; })[0];
       if (!p){ toast('Data belum sinkron, coba muat ulang dulu.'); return; }
@@ -1330,6 +1417,7 @@
       fields: [
         { key:'item', label:'Nama Bahan', type:'text' },
         { key:'jumlah', label:'Jumlah', type:'rupiah' },
+        { key:'menuTerkait', label:'Kaitkan ke Menu', type:'menuMultiSelect' },
         { key:'keterangan', label:'Keterangan', type:'text' },
         { key:'pengisi', label:'Nama Pengisi', type:'text' }
       ]
@@ -1390,6 +1478,15 @@
         var opts = (f.options||[]).map(function(o){ return '<option value="'+escapeHtml(o)+'"'+(String(val)===o?' selected':'')+'>'+escapeHtml(o)+'</option>'; }).join('');
         return '<div class="field"><label>'+escapeHtml(f.label)+'</label><select id="editField_'+i+'">'+opts+'</select></div>';
       }
+      if (f.type === 'menuMultiSelect'){
+        var checkedArr = Array.isArray(val) ? val : String(val||'').split(',').map(function(x){return x.trim();}).filter(function(x){return x;});
+        var menu = (BOOT && BOOT.daftarMenu) || [];
+        var tags = menu.length ? menu.map(function(m){
+          var isChecked = checkedArr.indexOf(m.nama) > -1;
+          return '<button type="button" class="menu-tag'+(isChecked?' checked':'')+'" data-nama="'+escapeHtml(m.nama)+'" onclick="this.classList.toggle(\'checked\')">'+escapeHtml(m.nama)+'</button>';
+        }).join('') : '<div class="menu-tag-empty">Belum ada menu.</div>';
+        return '<div class="field"><label>'+escapeHtml(f.label)+' <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(opsional, boleh lebih dari satu)</span></label><div class="menu-tag-list" id="editField_'+i+'">'+tags+'</div></div>';
+      }
       var inputType = f.type === 'number' ? 'number' : 'text';
       var inputMode = f.type === 'rupiah' ? ' inputmode="numeric"' : '';
       return '<div class="field"><label>'+escapeHtml(f.label)+'</label>' +
@@ -1408,6 +1505,10 @@
     var hasEmpty = false;
     cfg.fields.forEach(function(f, i){
       var el = document.getElementById('editField_'+i);
+      if (f.type === 'menuMultiSelect'){
+        payload[f.key] = el ? Array.prototype.slice.call(el.querySelectorAll('.menu-tag.checked')).map(function(t){ return t.dataset.nama; }) : [];
+        return;
+      }
       var raw = el ? el.value : '';
       if (f.type === 'rupiah') payload[f.key] = parseRibuan(raw);
       else if (f.type === 'number') payload[f.key] = Number(raw) || 0;
@@ -1728,10 +1829,51 @@
         options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{display:false}},
           scales:{ x:{ ticks:{ callback:function(v){return 'Rp'+(v/1000)+'k';} } } } }
       });
+
+      // Laba per menu — hanya menu yang punya omzet ATAU modal terkait
+      // (menu yang belum pernah dipakai sama sekali tidak perlu tampil).
+      var menuLaba = DASH.menuTerlaris.filter(function(m){ return m.total > 0 || m.modal > 0; })
+        .slice().sort(function(a,b){ return b.laba - a.laba; }).slice(0,8);
+      destroyChart('chartLabaMenu');
+      charts.chartLabaMenu = new Chart(document.getElementById('chartLabaMenu'), {
+        type:'bar',
+        data:{ labels: menuLaba.map(function(m){return m.item;}),
+          datasets:[
+            { label:'Omzet', data: menuLaba.map(function(m){return m.total;}), backgroundColor:'#E7A93E', borderRadius:6, maxBarThickness:16 },
+            { label:'Modal', data: menuLaba.map(function(m){return m.modal;}), backgroundColor:'#C1443C', borderRadius:6, maxBarThickness:16 }
+          ] },
+        options:{ indexAxis:'y', maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}},
+          scales:{ x:{ ticks:{ callback:function(v){return 'Rp'+(v/1000)+'k';} } } } }
+      });
+      renderMarginMenuTable(menuLaba);
+
+      var modalUmumHint = document.getElementById('modalUmumHint');
+      if (modalUmumHint){
+        modalUmumHint.textContent = (DASH.totalModalUmum > 0)
+          ? 'Modal umum (tidak dikaitkan ke menu tertentu): ' + rupiah(DASH.totalModalUmum)
+          : '';
+      }
     } catch(e){
       console.error('Gagal menggambar grafik:', e);
       toast('Grafik gagal dimuat, tapi data lain tetap tampil.');
     }
+  }
+
+  function renderMarginMenuTable(menuLaba){
+    var wrap = document.getElementById('tabelMarginMenu');
+    if (!wrap) return;
+    if (!menuLaba || !menuLaba.length){
+      wrap.innerHTML = '<div class="empty" style="padding:8px 0;">Belum ada data laba per menu. Kaitkan modal/belanja ke menu supaya muncul di sini.</div>';
+      return;
+    }
+    wrap.innerHTML = menuLaba.map(function(m){
+      return '<div class="margin-row">' +
+        '<div><div class="mr-name">'+escapeHtml(m.item)+'</div>' +
+          '<div class="mr-sub">Omzet '+rupiah(m.total)+' · Modal '+rupiah(m.modal)+'</div></div>' +
+        '<div><div class="mr-laba'+(m.laba<0?' neg':'')+'">'+rupiah(m.laba)+'</div>' +
+          '<div class="mr-margin">margin '+pct(m.total ? m.laba/m.total : 0)+'</div></div>' +
+      '</div>';
+    }).join('');
   }
 
   function renderLogList(elId, items){
@@ -1763,8 +1905,8 @@
   function openEditRiwayatTransaksi(id, item, qty, hargaSatuan, kasir, statusBayar, namaPelanggan){
     openEditEntry('transaksi', id, { item: item, qty: qty, hargaSatuan: hargaSatuan, kasir: kasir, statusBayar: statusBayar, namaPelanggan: namaPelanggan });
   }
-  function openEditRiwayatModal(id, item, jumlah, keterangan, pengisi){
-    openEditEntry('modal', id, { item: item, jumlah: jumlah, keterangan: keterangan, pengisi: pengisi });
+  function openEditRiwayatModal(id, item, jumlah, keterangan, pengisi, menuTerkait){
+    openEditEntry('modal', id, { item: item, jumlah: jumlah, keterangan: keterangan, pengisi: pengisi, menuTerkait: menuTerkait || [] });
   }
   function openEditRiwayatPemasukanLain(id, item, jumlah, keterangan, pengisi){
     openEditEntry('pemasukanLain', id, { item: item, jumlah: jumlah, keterangan: keterangan, pengisi: pengisi });
@@ -1799,9 +1941,12 @@
           '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
       }).join('') || '<div class="empty" style="padding:10px 0;">Belum ada penjualan.</div>';
       var modalRows = s.itemsModal.map(function(it){
-        return '<div class="receipt-row"><div><div>'+escapeHtml(it.item)+'</div><div class="item-sub">'+escapeHtml(it.keterangan||'')+' · '+it.waktu+'</div></div>' +
+        var tagLabel = (it.menuTerkait && it.menuTerkait.length) ?
+          it.menuTerkait.map(function(n){ return '<span class="menu-tag-mini">'+escapeHtml(n)+'</span>'; }).join('') : '';
+        var menuTerkaitArg = "JSON.parse('"+JSON.stringify(it.menuTerkait||[]).replace(/'/g,"\\'")+"')";
+        return '<div class="receipt-row"><div><div>'+escapeHtml(it.item)+'</div><div class="item-sub">'+escapeHtml(it.keterangan||'')+' · '+it.waktu+'</div>'+tagLabel+'</div>' +
           '<div class="row-actions"><div class="num">'+rupiah(it.jumlah)+'</div>' +
-          '<button class="edit-btn" onclick="openEditRiwayatModal(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.jumlah+',\''+escapeHtml(it.keterangan||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.pengisi||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
+          '<button class="edit-btn" onclick="openEditRiwayatModal(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.jumlah+',\''+escapeHtml(it.keterangan||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.pengisi||'').replace(/'/g,"\\'")+'\','+menuTerkaitArg+')">✎</button></div></div>';
       }).join('') || '<div class="empty" style="padding:10px 0;">Belum ada modal.</div>';
       var pemasukanLainRows = s.itemsPemasukanLain.map(function(it){
         return '<div class="receipt-row"><div><div>'+escapeHtml(it.item)+'</div><div class="item-sub">'+escapeHtml(it.keterangan||'')+' · '+it.waktu+'</div></div>' +
