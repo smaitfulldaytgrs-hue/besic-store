@@ -20,6 +20,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 <style>
   :root{
     --ink:#16302B; --ink-2:#1E4038; --cream:#FBF6EC; --paper:#FFFFFF;
@@ -435,7 +438,10 @@
     <section class="block">
       <div style="display:flex;align-items:center;justify-content:space-between;margin:0 2px 12px;">
         <p class="block-title" style="margin:0;">Ringkasan</p>
-        <button class="btn btn-ghost" style="padding:6px 12px;font-size:11.5px;" onclick="manualRefresh()">🔄 Muat Ulang</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:11.5px;" onclick="openExportModal()">📄 Export</button>
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:11.5px;" onclick="manualRefresh()">🔄 Muat Ulang</button>
+        </div>
       </div>
       <div class="stat-grid">
         <div class="stat-card gold"><div class="label"><span class="icon-dot"></span>Total Pemasukan</div><div class="value num" id="statPemasukan">-</div></div>
@@ -678,6 +684,21 @@
     <div id="editModalFields"></div>
     <button class="btn btn-gold btn-block" onclick="confirmEditEntry()">Simpan Perubahan</button>
     <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="closeModal('editModal')">Batal</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="exportModal">
+  <div class="modal-sheet">
+    <h3>📄 Export Laporan</h3>
+    <div class="field">
+      <label>Cakupan</label>
+      <select id="exportCakupan">
+        <option value="all">Semua Sesi (Rekap Keseluruhan)</option>
+      </select>
+    </div>
+    <button class="btn btn-gold btn-block" onclick="exportLaporan('excel')">⬇️ Unduh Excel</button>
+    <button class="btn btn-primary btn-block" style="margin-top:8px;" onclick="exportLaporan('pdf')">⬇️ Unduh PDF</button>
+    <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="closeModal('exportModal')">Batal</button>
   </div>
 </div>
 
@@ -2084,6 +2105,194 @@
     loadDashboard();
     refreshBootstrapSilently();
     flushOutbox();
+  }
+
+  // ============================================================
+  // EXPORT LAPORAN (PDF / Excel) — keseluruhan atau per sesi.
+  // Pakai data DASH yang sudah dimuat (tidak panggil server lagi).
+  // ============================================================
+  function openExportModal(){
+    if (!DASH){ toast('Data belum termuat, tunggu sebentar lalu coba lagi.'); return; }
+    var sel = document.getElementById('exportCakupan');
+    var opts = '<option value="all">Semua Sesi (Rekap Keseluruhan)</option>';
+    DASH.sesiList.slice().reverse().forEach(function(s){
+      opts += '<option value="'+escapeHtml(s.id)+'">'+escapeHtml(s.nama)+' — '+escapeHtml(s.tanggal)+'</option>';
+    });
+    sel.innerHTML = opts;
+    document.getElementById('exportModal').classList.add('show');
+  }
+
+  function namaFileExport_(scopeLabel){
+    var stamp = new Date().toISOString().slice(0,10);
+    return 'BESIC-Store_' + scopeLabel.replace(/[^a-z0-9]+/gi,'-') + '_' + stamp;
+  }
+
+  function exportLaporan(format){
+    if (!DASH){ toast('Data belum termuat.'); return; }
+    var sesiId = document.getElementById('exportCakupan').value;
+    var scope = (sesiId === 'all') ? null : DASH.sesiList.find(function(s){ return s.id === sesiId; });
+    if (sesiId !== 'all' && !scope){ toast('Sesi tidak ditemukan.'); return; }
+    var scopeLabel = scope ? scope.nama : 'Semua-Sesi';
+    try {
+      if (format === 'excel') exportExcel_(scope, scopeLabel);
+      else exportPdf_(scope, scopeLabel);
+      closeModal('exportModal');
+    } catch (err){
+      console.error(err);
+      toast('Gagal export: ' + (err && err.message ? err.message : String(err)));
+    }
+  }
+
+  // ---- Excel (SheetJS) ----
+  function exportExcel_(scope, scopeLabel){
+    var wb = XLSX.utils.book_new();
+    var sesiCakupan = scope ? [scope] : DASH.sesiList;
+
+    // Sheet Ringkasan
+    var ringkasan = scope ? [
+      ['Sesi', scope.nama],
+      ['Tanggal', scope.tanggal],
+      ['Status', scope.status],
+      ['Total Pemasukan', scope.totalPemasukan],
+      ['Total Modal', scope.totalModal],
+      ['Pemasukan Lainnya', scope.totalPemasukanLain],
+      ['Piutang Belum Tertagih', scope.totalPiutang],
+      ['Laba', scope.laba],
+      ['Margin', pct(scope.margin)]
+    ] : [
+      ['Saldo Akhir', DASH.saldoAkhir],
+      ['Total Pemasukan (Semua Sesi)', DASH.totalPemasukanAll],
+      ['Total Modal (Semua Sesi)', DASH.totalModalAll],
+      ['Pemasukan Lainnya (Semua Sesi)', DASH.totalPemasukanLainAll],
+      ['Piutang Belum Tertagih', DASH.totalPiutangAll],
+      ['Laba Jualan', DASH.totalLabaJualan],
+      ['Total Kegiatan', DASH.totalKegiatan],
+      ['Total Inventaris', DASH.totalInventaris],
+      ['Jumlah Sesi', DASH.sesiList.length]
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(
+      [['Ringkasan Laporan — ' + scopeLabel], []].concat(ringkasan)
+    ), 'Ringkasan');
+
+    // Sheet Transaksi
+    var txRows = [['Sesi','Waktu','Item','Qty','Harga Satuan','Total','Kasir','Status Bayar','Nama Pelanggan']];
+    sesiCakupan.forEach(function(s){
+      s.itemsPemasukan.forEach(function(it){
+        txRows.push([s.nama, it.waktu, it.item, it.qty, it.hargaSatuan, it.total, it.kasir, it.statusBayar, it.namaPelanggan]);
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(txRows), 'Transaksi');
+
+    // Sheet Modal
+    var mdRows = [['Sesi','Waktu','Item','Jumlah','Keterangan','Pengisi','Menu Terkait']];
+    sesiCakupan.forEach(function(s){
+      s.itemsModal.forEach(function(it){
+        mdRows.push([s.nama, it.waktu, it.item, it.jumlah, it.keterangan, it.pengisi, (it.menuTerkait||[]).join(', ')]);
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mdRows), 'Modal');
+
+    // Sheet Pemasukan Lain
+    var plRows = [['Sesi','Waktu','Sumber','Jumlah','Keterangan','Pengisi']];
+    sesiCakupan.forEach(function(s){
+      s.itemsPemasukanLain.forEach(function(it){
+        plRows.push([s.nama, it.waktu, it.item, it.jumlah, it.keterangan, it.pengisi]);
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(plRows), 'Pemasukan Lain');
+
+    // Sheet Menu Terlaris
+    var menuList = scope ? scope.menuTerlaris : DASH.menuTerlaris;
+    var mnRows = [['Menu','Qty Terjual','Omzet','Modal Teralokasi','Laba','Margin']];
+    (menuList||[]).forEach(function(m){
+      mnRows.push([m.item, m.qty, m.total, m.modal, m.laba, pct(m.margin)]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mnRows), 'Menu Terlaris');
+
+    // Sheet Inventaris & Kegiatan cuma untuk rekap keseluruhan
+    if (!scope){
+      var invRows = [['Tanggal','Nama','Harga','Keterangan']];
+      DASH.inventaris.forEach(function(r){ invRows.push([r.tanggal, r.nama, r.harga, r.keterangan]); });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), 'Inventaris');
+
+      var kgRows = [['Tanggal','Nama','Harga','Keterangan']];
+      DASH.kegiatan.forEach(function(r){ kgRows.push([r.tanggal, r.nama, r.harga, r.keterangan]); });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kgRows), 'Kegiatan');
+    }
+
+    XLSX.writeFile(wb, namaFileExport_(scopeLabel) + '.xlsx');
+    toast('Excel berhasil diunduh.');
+  }
+
+  // ---- PDF (jsPDF + autoTable) ----
+  function exportPdf_(scope, scopeLabel){
+    var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFCtor){ toast('Library PDF belum termuat, cek koneksi lalu coba lagi.'); return; }
+    var doc = new jsPDFCtor({ unit: 'pt', format: 'a4' });
+    var y = 40;
+
+    doc.setFontSize(16);
+    doc.text('BESIC Store — Laporan ' + scopeLabel, 40, y);
+    y += 18;
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text('Diunduh: ' + new Date().toLocaleString('id-ID'), 40, y);
+    doc.setTextColor(0);
+    y += 16;
+
+    var sesiCakupan = scope ? [scope] : DASH.sesiList;
+
+    var ringkasanBody = scope ? [
+      ['Sesi', scope.nama], ['Tanggal', scope.tanggal], ['Status', scope.status],
+      ['Total Pemasukan', rupiah(scope.totalPemasukan)], ['Total Modal', rupiah(scope.totalModal)],
+      ['Pemasukan Lainnya', rupiah(scope.totalPemasukanLain)], ['Piutang', rupiah(scope.totalPiutang)],
+      ['Laba', rupiah(scope.laba)], ['Margin', pct(scope.margin)]
+    ] : [
+      ['Saldo Akhir', rupiah(DASH.saldoAkhir)], ['Total Pemasukan', rupiah(DASH.totalPemasukanAll)],
+      ['Total Modal', rupiah(DASH.totalModalAll)], ['Pemasukan Lainnya', rupiah(DASH.totalPemasukanLainAll)],
+      ['Piutang', rupiah(DASH.totalPiutangAll)], ['Laba Jualan', rupiah(DASH.totalLabaJualan)],
+      ['Total Kegiatan', rupiah(DASH.totalKegiatan)], ['Total Inventaris', rupiah(DASH.totalInventaris)],
+      ['Jumlah Sesi', DASH.sesiList.length]
+    ];
+    doc.autoTable({ startY: y, head: [['Ringkasan','Nilai']], body: ringkasanBody, theme: 'grid', styles: { fontSize: 9 }, headStyles: { fillColor: [22,48,43] } });
+    y = doc.lastAutoTable.finalY + 20;
+
+    var txBody = [];
+    sesiCakupan.forEach(function(s){
+      s.itemsPemasukan.forEach(function(it){
+        txBody.push([s.nama, it.waktu, it.item, it.qty, rupiah(it.hargaSatuan), rupiah(it.total), it.statusBayar]);
+      });
+    });
+    if (txBody.length){
+      if (y > 700){ doc.addPage(); y = 40; }
+      doc.setFontSize(11); doc.text('Transaksi Penjualan', 40, y); y += 8;
+      doc.autoTable({ startY: y, head: [['Sesi','Waktu','Item','Qty','Harga','Total','Status']], body: txBody, theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [22,48,43] } });
+      y = doc.lastAutoTable.finalY + 20;
+    }
+
+    var mdBody = [];
+    sesiCakupan.forEach(function(s){
+      s.itemsModal.forEach(function(it){
+        mdBody.push([s.nama, it.waktu, it.item, rupiah(it.jumlah), it.keterangan || '']);
+      });
+    });
+    if (mdBody.length){
+      if (y > 700){ doc.addPage(); y = 40; }
+      doc.setFontSize(11); doc.text('Modal / Pengeluaran Bahan', 40, y); y += 8;
+      doc.autoTable({ startY: y, head: [['Sesi','Waktu','Item','Jumlah','Keterangan']], body: mdBody, theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [22,48,43] } });
+      y = doc.lastAutoTable.finalY + 20;
+    }
+
+    var menuList = scope ? scope.menuTerlaris : DASH.menuTerlaris;
+    if (menuList && menuList.length){
+      if (y > 700){ doc.addPage(); y = 40; }
+      doc.setFontSize(11); doc.text('Menu Terlaris', 40, y); y += 8;
+      var mnBody = menuList.map(function(m){ return [m.item, m.qty, rupiah(m.total), rupiah(m.modal), rupiah(m.laba), pct(m.margin)]; });
+      doc.autoTable({ startY: y, head: [['Menu','Qty','Omzet','Modal','Laba','Margin']], body: mnBody, theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [22,48,43] } });
+    }
+
+    doc.save(namaFileExport_(scopeLabel) + '.pdf');
+    toast('PDF berhasil diunduh.');
   }
 
   // ============================================================
