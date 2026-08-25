@@ -273,9 +273,9 @@
   .receipt-total-row .rt-piutang{font-weight:500;font-size:11px;color:var(--rust);display:block;text-align:right;margin-top:1px;}
 
   /* ---------- TAB KATEGORI di dalam kartu Riwayat ---------- */
-  .receipt-tabs{display:flex;gap:6px;margin-bottom:10px;}
+  .receipt-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
   .receipt-tab-btn{
-    flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:5px;
+    flex:1 1 40%;display:flex;align-items:center;justify-content:center;gap:5px;
     border:1px solid var(--line);background:var(--cream);border-radius:10px;
     padding:8px 4px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;
     white-space:nowrap;
@@ -287,6 +287,8 @@
   .receipt-tab-btn.modal.active .rt-count{background:#C1443C;color:#fff;}
   .receipt-tab-btn.lain.active{border-color:#2B4570;color:#2B4570;background:#EAF0FA;}
   .receipt-tab-btn.lain.active .rt-count{background:#2B4570;color:#fff;}
+  .receipt-tab-btn.laba.active{border-color:#1E4038;color:#1E4038;background:#E7F0EC;}
+  .receipt-tab-btn.laba.active .rt-count{background:#1E4038;color:#fff;}
   .receipt-cat-panel{display:none;}
   .receipt-cat-panel.active{display:block;}
 
@@ -1981,6 +1983,16 @@
       var modalTotalRow = '<div class="receipt-total-row"><span>Total Modal / Belanja</span><span>'+rupiah(s.totalModal)+'</span></div>';
       var pemasukanLainTotalRow = '<div class="receipt-total-row"><span>Total Pemasukan Lainnya</span><span>'+rupiah(s.totalPemasukanLain)+'</span></div>';
 
+      var menuLabaSesi = (s.menuTerlaris||[]).filter(function(m){ return m.total > 0 || m.modal > 0; });
+      var labaMenuRows = menuLabaSesi.length ? menuLabaSesi.map(function(m){
+        return '<div class="margin-row">' +
+          '<div><div class="mr-name">'+escapeHtml(m.item)+'</div>' +
+            '<div class="mr-sub">Omzet '+rupiah(m.total)+' · Modal '+rupiah(m.modal)+'</div></div>' +
+          '<div><div class="mr-laba'+(m.laba<0?' neg':'')+'">'+rupiah(m.laba)+'</div>' +
+            '<div class="mr-margin">margin '+pct(m.margin)+'</div></div>' +
+        '</div>';
+      }).join('') : '<div class="empty" style="padding:14px 0;">Belum ada penjualan/modal yang terkait menu di sesi ini.</div>';
+
       var nJual = s.itemsPemasukan.length, nModal = s.itemsModal.length, nLain = s.itemsPemasukanLain.length;
 
       return '' +
@@ -1995,18 +2007,20 @@
             '<div class="receipt-tabs">' +
               '<button type="button" class="receipt-tab-btn jual active" id="'+id+'_tab_jual" onclick="switchReceiptTab(\''+id+'\',\'jual\')">🧾 Jual <span class="rt-count">'+nJual+'</span></button>' +
               '<button type="button" class="receipt-tab-btn modal" id="'+id+'_tab_modal" onclick="switchReceiptTab(\''+id+'\',\'modal\')">🛒 Modal <span class="rt-count">'+nModal+'</span></button>' +
-              '<button type="button" class="receipt-tab-btn lain" id="'+id+'_tab_lain" onclick="switchReceiptTab(\''+id+'\',\'lain\')">💰 Lainnya <span class="rt-count">'+nLain+'</span></button>' +
+              '<button type="button" class="receipt-tab-btn lain" id="'+id+'_tab_lain" onclick="switchReceiptTab(\''+id+'\',\'lain\')">💰 Lain <span class="rt-count">'+nLain+'</span></button>' +
+              '<button type="button" class="receipt-tab-btn laba" id="'+id+'_tab_laba" onclick="switchReceiptTab(\''+id+'\',\'laba\')">📊 Laba <span class="rt-count">'+menuLabaSesi.length+'</span></button>' +
             '</div>' +
             '<div class="receipt-cat-panel active" id="'+id+'_panel_jual">'+pemasukanRows+penjualanTotalRow+'</div>' +
             '<div class="receipt-cat-panel" id="'+id+'_panel_modal">'+modalRows+modalTotalRow+'</div>' +
             '<div class="receipt-cat-panel" id="'+id+'_panel_lain">'+pemasukanLainRows+pemasukanLainTotalRow+'</div>' +
+            '<div class="receipt-cat-panel" id="'+id+'_panel_laba">'+labaMenuRows+'</div>' +
           '</div>' +
         '</div><div class="receipt-zigzag"></div>';
     }).join('');
   }
 
   function switchReceiptTab(id, cat){
-    ['jual','modal','lain'].forEach(function(c){
+    ['jual','modal','lain','laba'].forEach(function(c){
       var btn = document.getElementById(id+'_tab_'+c);
       var panel = document.getElementById(id+'_panel_'+c);
       if (btn) btn.classList.toggle('active', c === cat);
