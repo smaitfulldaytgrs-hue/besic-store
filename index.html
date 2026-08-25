@@ -294,6 +294,7 @@
 
   .log-item{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px;}
   .log-item .lname{font-weight:700;font-size:13.5px;}
+  .log-item .lporsi{font-size:11px;color:var(--muted);margin-top:2px;}
   .log-item .ldate{font-size:11px;color:var(--muted);margin-top:2px;}
   .log-item .lprice{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13.5px;white-space:nowrap;}
 
@@ -502,6 +503,17 @@
         <h3>🍽️ Tambah Menu Jualan</h3>
         <div class="field"><label>Nama Menu</label><input type="text" id="mnNama" placeholder="mis. Dimsum, Es Teh..."></div>
         <div class="field"><label>Harga Jual</label><input type="text" inputmode="numeric" id="mnHarga" placeholder="0"></div>
+        <div class="toggle-row">
+          <div><div class="tlabel">Ini kemasan porsi dari menu lain?</div><div class="tsub">mis. "Lubi (1 Porsi)" isinya 5 pcs Lubi satuan — omzetnya digabung ke Lubi di laporan</div></div>
+          <label class="switch"><input type="checkbox" id="mnIsPorsi" onchange="toggleMnPorsiFields(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="field-row" id="mnPorsiFields" style="display:none;">
+          <div class="field"><label>Menu Dasar (satuan)</label>
+            <input list="menuDasarList" id="mnItemDasar" placeholder="mis. Lubi">
+            <datalist id="menuDasarList"></datalist>
+          </div>
+          <div class="field"><label>Isi per Porsi</label><input type="text" inputmode="numeric" id="mnIsiPerPorsi" placeholder="mis. 5"></div>
+        </div>
         <button class="btn btn-gold btn-block" onclick="submitMenu()">+ Tambah ke Daftar Menu</button>
       </div>
     </section>
@@ -881,7 +893,11 @@
     var wrap = document.getElementById('mdMenuChecklist');
     if (!wrap) return;
     var checkedBefore = getMdMenuChecked();
-    var menu = (BOOT && BOOT.daftarMenu) || [];
+    // Cuma tampilkan menu dasar (bukan kemasan porsi) — modal/belanja
+    // wajarnya dikaitkan ke bahan/menu satuan, bukan varian porsinya.
+    // Backend tetap otomatis menggabung kalau ada data lama yang
+    // kadung terkait ke nama porsi.
+    var menu = ((BOOT && BOOT.daftarMenu) || []).filter(function(m){ return !m.itemDasar; });
     if (!menu.length){
       wrap.innerHTML = '<div class="menu-tag-empty">Belum ada menu. Tambahkan dulu di tab Menu.</div>';
       return;
@@ -1086,22 +1102,40 @@
   // ============================================================
   // KELOLA DAFTAR MENU
   // ============================================================
+  function toggleMnPorsiFields(checked){
+    document.getElementById('mnPorsiFields').style.display = checked ? 'flex' : 'none';
+    if (checked) renderMenuDasarDatalist();
+  }
+
+  // Datalist "Menu Dasar" cuma nawarin menu yang BUKAN kemasan porsi
+  // (biar gak bikin porsi-dari-porsi yang bikin bingung perhitungan).
+  function renderMenuDasarDatalist(){
+    var dl = document.getElementById('menuDasarList');
+    if (!dl) return;
+    var menu = (BOOT && BOOT.daftarMenu) || [];
+    dl.innerHTML = menu.filter(function(m){ return !m.itemDasar; })
+      .map(function(m){ return '<option value="'+escapeHtml(m.nama)+'">'; }).join('');
+  }
+
   function renderMenuList(){
     var wrap = document.getElementById('menuList');
     var menu = (BOOT && BOOT.daftarMenu) || [];
     if (!menu.length){ wrap.innerHTML = '<div class="empty">Belum ada menu. Tambahkan menu di atas.</div>'; return; }
     wrap.innerHTML = menu.map(function(m){
-      return '<div class="log-item"><div><div class="lname">'+escapeHtml(m.nama)+'</div></div>' +
+      var porsiBadge = m.itemDasar ? '<div class="lporsi">= '+m.isiPerPorsi+'x '+escapeHtml(m.itemDasar)+'</div>' : '';
+      return '<div class="log-item"><div><div class="lname">'+escapeHtml(m.nama)+'</div>'+porsiBadge+'</div>' +
         '<div class="row-actions">' +
         '<div class="lprice">'+rupiah(m.harga)+'</div>' +
-        '<button class="edit-btn" onclick="openEditMenuItem(\''+m.id+'\',\''+escapeHtml(m.nama).replace(/'/g,"\\'")+'\','+m.harga+')">✎</button>' +
+        '<button class="edit-btn" onclick="openEditMenuItem(\''+m.id+'\')">✎</button>' +
         '<button class="del-btn" onclick="hapusMenuItem(\''+m.id+'\')">×</button>' +
         '</div></div>';
     }).join('');
   }
 
-  function openEditMenuItem(id, nama, harga){
-    openEditEntry('menu', id, { nama: nama, harga: harga });
+  function openEditMenuItem(id){
+    var m = (BOOT.daftarMenu||[]).find(function(x){ return x.id === id; });
+    if (!m) return;
+    openEditEntry('menu', id, { nama: m.nama, harga: m.harga, itemDasar: m.itemDasar, isiPerPorsi: m.isiPerPorsi });
   }
 
   function submitMenu(){
@@ -1109,14 +1143,22 @@
     var nama = document.getElementById('mnNama').value.trim();
     var harga = parseRibuan(document.getElementById('mnHarga').value);
     if (!nama || harga <= 0){ toast('Isi nama menu dan harga jual dulu ya.'); return; }
-    gasCall('tambahMenu', [{ nama: nama, harga: harga }]).then(function(res){
+    var isPorsi = document.getElementById('mnIsPorsi').checked;
+    var itemDasar = isPorsi ? document.getElementById('mnItemDasar').value.trim() : '';
+    var isiPerPorsi = isPorsi ? (parseInt(document.getElementById('mnIsiPerPorsi').value, 10) || 0) : 1;
+    if (isPorsi && (!itemDasar || isiPerPorsi <= 0)){ toast('Isi menu dasar dan jumlah isi per porsi dulu ya.'); return; }
+    gasCall('tambahMenu', [{ nama: nama, harga: harga, itemDasar: itemDasar, isiPerPorsi: isiPerPorsi }]).then(function(res){
       BOOT.daftarMenu = BOOT.daftarMenu || [];
-      BOOT.daftarMenu.push({ id: res.id, nama: res.nama, harga: res.harga });
+      BOOT.daftarMenu.push({ id: res.id, nama: res.nama, harga: res.harga, itemDasar: res.itemDasar||'', isiPerPorsi: res.isiPerPorsi||1 });
       BOOT.daftarMenu.sort(function(a,b){ return a.nama.localeCompare(b.nama, 'id'); });
       renderMenuQuickGrid();
       renderMenuList();
       document.getElementById('mnNama').value = '';
       document.getElementById('mnHarga').value = '';
+      document.getElementById('mnIsPorsi').checked = false;
+      document.getElementById('mnItemDasar').value = '';
+      document.getElementById('mnIsiPerPorsi').value = '';
+      toggleMnPorsiFields(false);
       toast('Menu "'+nama+'" ditambahkan');
     }).catch(function(err){ toast('Gagal menambah menu: '+err.message); });
   }
@@ -1470,7 +1512,9 @@
       title: 'Edit Menu', fn: 'updateMenu', sheetKey: 'MENU',
       fields: [
         { key:'nama', label:'Nama Menu', type:'text' },
-        { key:'harga', label:'Harga Jual', type:'rupiah' }
+        { key:'harga', label:'Harga Jual', type:'rupiah' },
+        { key:'itemDasar', label:'Menu Dasar (kosongkan kalau bukan kemasan porsi)', type:'text' },
+        { key:'isiPerPorsi', label:'Isi per Porsi', type:'number' }
       ]
     },
     sesi: {
@@ -1499,7 +1543,7 @@
       }
       if (f.type === 'menuMultiSelect'){
         var checkedArr = Array.isArray(val) ? val : String(val||'').split(',').map(function(x){return x.trim();}).filter(function(x){return x;});
-        var menu = (BOOT && BOOT.daftarMenu) || [];
+        var menu = ((BOOT && BOOT.daftarMenu) || []).filter(function(m){ return !m.itemDasar; });
         var tags = menu.length ? menu.map(function(m){
           var isChecked = checkedArr.indexOf(m.nama) > -1;
           return '<button type="button" class="menu-tag'+(isChecked?' checked':'')+'" data-nama="'+escapeHtml(m.nama)+'" onclick="this.classList.toggle(\'checked\')">'+escapeHtml(m.nama)+'</button>';
