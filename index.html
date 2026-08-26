@@ -599,6 +599,7 @@
           <label class="switch"><input type="checkbox" id="txSudahBayar" checked onchange="onToggleSudahBayar(this.checked)"><span class="slider"></span></label>
         </div>
         <div class="draft-note" id="txDraftNote">✎ Keranjang tersimpan otomatis di HP ini</div>
+        <button type="button" class="btn btn-ghost btn-block" id="cetakStrukTerakhirBtn" style="display:none;margin-top:8px;" onclick="cetakStrukTerakhir()">🖨️ Cetak Struk Transaksi Terakhir</button>
       </div>
     </section>
 
@@ -704,7 +705,6 @@
     <div class="csb-total num" id="cartTotalPreview">Rp 0</div>
   </div>
   <button class="btn btn-gold" onclick="submitCartTransaksi()" id="cartSubmitBtn">+ Simpan Transaksi</button>
-  <button class="btn btn-ghost" id="cetakStrukTerakhirBtn" style="display:none;flex:0 0 auto;" onclick="cetakStrukTerakhir()">🖨️</button>
 </div>
 
 <div class="modal-overlay" id="startSesiModal">
@@ -1133,10 +1133,11 @@
       return;
     }
 
+    var groupId = uuid();
     cart.forEach(function(c){
       var clientId = uuid();
       var total = c.qty * c.harga;
-      var payload = { sesiId: BOOT.sesiAktif.ID, item: c.nama, qty: c.qty, hargaSatuan: c.harga, kasir: kasir, statusBayar: statusBayar, namaPelanggan: pelanggan, clientId: clientId };
+      var payload = { sesiId: BOOT.sesiAktif.ID, item: c.nama, qty: c.qty, hargaSatuan: c.harga, kasir: kasir, statusBayar: statusBayar, namaPelanggan: pelanggan, clientId: clientId, groupId: groupId };
       var badge = sudahBayar ? '' : ' · Belum Bayar';
       addFeedOptimistic({ clientId: clientId, type:'pemasukan', title: c.nama, sub: c.qty+' x '+rupiah(c.harga)+' · '+(kasir||'-')+badge, value: rupiah(total), pending:true, statusBayar: statusBayar });
       pushOutbox({ clientId: clientId, type:'transaksi', payload: payload });
@@ -2078,6 +2079,7 @@
           '<div class="row-actions">' +
           (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\')">Lunas</button>' : '') +
           '<div class="fval">'+rupiah(it.total)+'</div>' +
+          '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
           '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
       }).join('') || '<div class="empty" style="padding:14px 0;">Belum ada penjualan.</div>';
 
@@ -2170,6 +2172,23 @@
     cetakStruk(lastStrukSnapshot.items, lastStrukSnapshot.meta);
   }
 
+  // Cetak ulang struk dari 1 baris transaksi lama di Riwayat — buat
+  // jaga-jaga kalau pembeli sebelumnya berubah pikiran minta struk.
+  // Kalau transaksi itu dulu punya groupId (dicatat sejak fitur ini
+  // ada), semua item dalam checkout yang sama ikut digabung jadi satu
+  // struk utuh. Transaksi lama sebelum fitur ini (groupId kosong)
+  // tetap dicetak sendiri per baris seperti biasa.
+  function cetakStrukDariRiwayat(sesiId, itemId){
+    var sesi = DASH.sesiList.find(function(s){ return s.id === sesiId; });
+    if (!sesi){ toast('Sesi tidak ditemukan.'); return; }
+    var it = sesi.itemsPemasukan.find(function(x){ return x.id === itemId; });
+    if (!it){ toast('Transaksi tidak ditemukan.'); return; }
+    var satuGrup = it.groupId ? sesi.itemsPemasukan.filter(function(x){ return x.groupId === it.groupId; }) : [it];
+    var items = satuGrup.map(function(x){ return { nama: x.item, qty: x.qty, harga: x.hargaSatuan }; });
+    var meta = { sesiNama: sesi.nama, kasir: it.kasir, pelanggan: it.namaPelanggan, statusBayar: it.statusBayar, waktuDisplay: it.waktu };
+    cetakStruk(items, meta);
+  }
+
   function onStrukMetodeChange(){
     var metode = document.getElementById('setStrukMetode').value;
     document.getElementById('strukBtAdvanced').style.display = (metode === 'bluetooth') ? 'block' : 'none';
@@ -2224,7 +2243,7 @@
     if (P.strukKontak) L.push(center(P.strukKontak));
     L.push(line('='));
     L.push('Sesi   : ' + (meta.sesiNama || '-'));
-    L.push('Tanggal: ' + meta.waktu.toLocaleDateString('id-ID') + ' ' + meta.waktu.toLocaleTimeString('id-ID', {hour:'2-digit',minute:'2-digit'}));
+    L.push('Tanggal: ' + (meta.waktuDisplay || (meta.waktu.toLocaleDateString('id-ID') + ' ' + meta.waktu.toLocaleTimeString('id-ID', {hour:'2-digit',minute:'2-digit'}))));
     L.push('Kasir  : ' + (meta.kasir || '-'));
     if (meta.pelanggan) L.push('Plgn   : ' + meta.pelanggan);
     L.push(line('-'));
