@@ -2096,7 +2096,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     wrap.innerHTML = DASH.sesiList.slice().reverse().map(function(s, idx){
       var id = 'rr_'+idx;
 
-      var pemasukanRows = s.itemsPemasukan.map(function(it){
+      var pemasukanRows = s.itemsPemasukan.slice().reverse().map(function(it){
         var unpaid = it.statusBayar === 'Belum Bayar';
         return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' +
           '<div class="row-actions">' +
@@ -2106,7 +2106,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
       }).join('') || '<div class="empty" style="padding:14px 0;">Belum ada penjualan.</div>';
 
-      var modalRows = s.itemsModal.map(function(it){
+      var modalRows = s.itemsModal.slice().reverse().map(function(it){
         var tagLabel = (it.menuTerkait && it.menuTerkait.length) ?
           '<div style="margin-top:3px;">'+it.menuTerkait.map(function(n){ return '<span class="menu-tag-mini">'+escapeHtml(n)+'</span>'; }).join('')+'</div>' : '';
         var menuTerkaitArg = "JSON.parse('"+JSON.stringify(it.menuTerkait||[]).replace(/'/g,"\\'")+"')";
@@ -2115,7 +2115,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           '<button class="edit-btn" onclick="openEditRiwayatModal(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.jumlah+',\''+escapeHtml(it.keterangan||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.pengisi||'').replace(/'/g,"\\'")+'\','+menuTerkaitArg+')">✎</button></div></div>';
       }).join('') || '<div class="empty" style="padding:14px 0;">Belum ada modal.</div>';
 
-      var pemasukanLainRows = s.itemsPemasukanLain.map(function(it){
+      var pemasukanLainRows = s.itemsPemasukanLain.slice().reverse().map(function(it){
         return '<div class="feed-item pemasukanLain"><div><div class="fname"><span class="ficon">💰</span>'+escapeHtml(it.item)+'</div><div class="fsub">'+escapeHtml(it.keterangan||'Pemasukan lainnya')+' · '+it.waktu+'</div></div>' +
           '<div class="row-actions"><div class="fval">'+rupiah(it.jumlah)+'</div>' +
           '<button class="edit-btn" onclick="openEditRiwayatPemasukanLain(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.jumlah+',\''+escapeHtml(it.keterangan||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.pengisi||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
