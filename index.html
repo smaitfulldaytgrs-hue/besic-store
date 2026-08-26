@@ -384,6 +384,15 @@
     background:var(--gold); color:var(--ink); font-weight:700; font-size:13.5px;
     cursor:pointer;
   }
+#strukPrintArea{ display:none; }
+@media print{
+  body *{ visibility:hidden; }
+  #strukPrintArea, #strukPrintArea *{ visibility:visible; }
+  #strukPrintArea{ display:block !important; position:absolute; top:0; left:0; }
+}
+.struk-58{ width:58mm; }
+.struk-80{ width:80mm; }
+.struk-body{ font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.4; white-space:pre-wrap; color:#000; padding:4px 2px; }
 </style>
 </head>
 <body>
@@ -498,6 +507,34 @@
           <div><div class="tlabel">Auto-refresh sesi & menu</div><div class="tsub">Sesi aktif, daftar menu, master bahan — tiap 30 detik</div></div>
           <label class="switch"><input type="checkbox" id="toggleRefresh30" onchange="onToggleRefresh30(this.checked)"><span class="slider"></span></label>
         </div>
+      </div>
+      <div class="form-card" style="margin-top:10px;">
+        <p class="block-title" style="margin:0 0 8px;">Identitas Struk (cetak thermal)</p>
+        <div class="field"><label>Nama Sekolah</label><input type="text" id="setStrukSekolah" placeholder="mis. SMA Negeri 1 ..."></div>
+        <div class="field"><label>Nama Program / Bazar</label><input type="text" id="setStrukProgram" placeholder="BESIC Store"></div>
+        <div class="field"><label>Alamat / Lokasi Kegiatan</label><input type="text" id="setStrukAlamat" placeholder="mis. Aula Sekolah, Jl. ..."></div>
+        <div class="field"><label>Kontak (opsional)</label><input type="text" id="setStrukKontak" placeholder="mis. IG @besic.store / 08xx"></div>
+        <div class="field"><label>Catatan Kaki Struk</label><input type="text" id="setStrukFooter" placeholder="Terima kasih sudah jajan di BESIC Store!"></div>
+        <div class="field-row">
+          <div class="field"><label>Lebar Kertas</label>
+            <select id="setStrukLebar"><option value="58">58 mm</option><option value="80">80 mm</option></select>
+          </div>
+          <div class="field"><label>Metode Cetak</label>
+            <select id="setStrukMetode" onchange="onStrukMetodeChange()">
+              <option value="browser">Dialog Print Biasa (RawBT/AirPrint)</option>
+              <option value="bluetooth">Langsung ke Printer Bluetooth (ESC/POS)</option>
+            </select>
+          </div>
+        </div>
+        <div id="strukBtAdvanced" style="display:none;">
+          <div class="field-row">
+            <div class="field"><label>Service UUID (opsional)</label><input type="text" id="setStrukBtService" placeholder="default: 000018f0-...34fb"></div>
+            <div class="field"><label>Characteristic UUID (opsional)</label><input type="text" id="setStrukBtChar" placeholder="default: 00002af1-...34fb"></div>
+          </div>
+          <p class="tsub" style="margin:-4px 0 8px;">Isi cuma kalau printer BT-mu gak mau nyambung pakai default — cek buku manual / merek printer.</p>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="saveStrukSettings()">Simpan Identitas Struk</button>
+        <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="tesCetakStruk()">🖨️ Tes Cetak Struk</button>
       </div>
     </section>
   </div>
@@ -667,6 +704,7 @@
     <div class="csb-total num" id="cartTotalPreview">Rp 0</div>
   </div>
   <button class="btn btn-gold" onclick="submitCartTransaksi()" id="cartSubmitBtn">+ Simpan Transaksi</button>
+  <button class="btn btn-ghost" id="cetakStrukTerakhirBtn" style="display:none;flex:0 0 auto;" onclick="cetakStrukTerakhir()">🖨️</button>
 </div>
 
 <div class="modal-overlay" id="startSesiModal">
@@ -1103,6 +1141,13 @@
       addFeedOptimistic({ clientId: clientId, type:'pemasukan', title: c.nama, sub: c.qty+' x '+rupiah(c.harga)+' · '+(kasir||'-')+badge, value: rupiah(total), pending:true, statusBayar: statusBayar });
       pushOutbox({ clientId: clientId, type:'transaksi', payload: payload });
     });
+
+    lastStrukSnapshot = {
+      items: cart.map(function(c){ return { nama: c.nama, qty: c.qty, harga: c.harga }; }),
+      meta: { sesiNama: (BOOT.sesiAktif && BOOT.sesiAktif.Nama) || '-', kasir: kasir, pelanggan: pelanggan, statusBayar: statusBayar, waktu: new Date() }
+    };
+    var btnCetak = document.getElementById('cetakStrukTerakhirBtn');
+    if (btnCetak) btnCetak.style.display = 'flex';
 
     var jumlahItem = cart.length;
     localStorage.setItem('besic_last_kasir', kasir);
@@ -1723,6 +1768,16 @@
         dl.innerHTML = (boot.masterBahan||[]).map(function(m){ return '<option value="'+escapeHtml(m)+'">'; }).join('');
         document.getElementById('setModalAwal').value = boot.pengaturan.modalAwal ? formatRibuan(String(boot.pengaturan.modalAwal)) : '';
         document.getElementById('setSisaTahunLalu').value = boot.pengaturan.sisaTahunLalu ? formatRibuan(String(boot.pengaturan.sisaTahunLalu)) : '';
+        document.getElementById('setStrukSekolah').value = boot.pengaturan.strukSekolah || '';
+        document.getElementById('setStrukProgram').value = boot.pengaturan.strukProgram || 'BESIC Store';
+        document.getElementById('setStrukAlamat').value = boot.pengaturan.strukAlamat || '';
+        document.getElementById('setStrukKontak').value = boot.pengaturan.strukKontak || '';
+        document.getElementById('setStrukFooter').value = boot.pengaturan.strukFooter || '';
+        document.getElementById('setStrukLebar').value = boot.pengaturan.strukLebarKertas || '58';
+        document.getElementById('setStrukMetode').value = boot.pengaturan.strukMetode || 'browser';
+        document.getElementById('setStrukBtService').value = boot.pengaturan.strukBtServiceUUID || '';
+        document.getElementById('setStrukBtChar').value = boot.pengaturan.strukBtCharUUID || '';
+        onStrukMetodeChange();
         var lastKasir = localStorage.getItem('besic_last_kasir');
         var lastPengisi = localStorage.getItem('besic_last_pengisi');
         if (lastKasir) document.getElementById('txKasir').value = lastKasir;
@@ -2100,6 +2155,168 @@
     label.textContent = open ? 'Sembunyikan ▴' : 'Lihat detail ▾';
   }
 
+  // ============================================================
+  // CETAK STRUK THERMAL (58mm/80mm) — Bluetooth ESC/POS atau
+  // dialog print browser biasa (buat dipakai bareng app RawBT / printer
+  // yang sudah terdaftar sebagai printer OS, termasuk AirPrint iOS).
+  // ============================================================
+  var BT_DEFAULT_SERVICE_UUID = '000018f0-0000-1000-8000-00805f9b34fb';
+  var BT_DEFAULT_CHAR_UUID = '00002af1-0000-1000-8000-00805f9b34fb';
+  var btPrinterCache = null; // { device, characteristic } — dicache selama tab masih terbuka
+  var lastStrukSnapshot = null; // { items, meta } dari transaksi terakhir yg baru disimpan
+
+  function cetakStrukTerakhir(){
+    if (!lastStrukSnapshot){ toast('Belum ada transaksi buat dicetak.'); return; }
+    cetakStruk(lastStrukSnapshot.items, lastStrukSnapshot.meta);
+  }
+
+  function onStrukMetodeChange(){
+    var metode = document.getElementById('setStrukMetode').value;
+    document.getElementById('strukBtAdvanced').style.display = (metode === 'bluetooth') ? 'block' : 'none';
+  }
+
+  function saveStrukSettings(){
+    var pairs = [
+      ['StrukSekolah', document.getElementById('setStrukSekolah').value.trim()],
+      ['StrukProgram', document.getElementById('setStrukProgram').value.trim() || 'BESIC Store'],
+      ['StrukAlamat', document.getElementById('setStrukAlamat').value.trim()],
+      ['StrukKontak', document.getElementById('setStrukKontak').value.trim()],
+      ['StrukFooter', document.getElementById('setStrukFooter').value.trim()],
+      ['StrukLebarKertas', document.getElementById('setStrukLebar').value],
+      ['StrukMetode', document.getElementById('setStrukMetode').value],
+      ['StrukBtServiceUUID', document.getElementById('setStrukBtService').value.trim()],
+      ['StrukBtCharUUID', document.getElementById('setStrukBtChar').value.trim()]
+    ];
+    pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
+    if (BOOT && BOOT.pengaturan){
+      BOOT.pengaturan.strukSekolah = pairs[0][1]; BOOT.pengaturan.strukProgram = pairs[1][1];
+      BOOT.pengaturan.strukAlamat = pairs[2][1]; BOOT.pengaturan.strukKontak = pairs[3][1];
+      BOOT.pengaturan.strukFooter = pairs[4][1]; BOOT.pengaturan.strukLebarKertas = pairs[5][1];
+      BOOT.pengaturan.strukMetode = pairs[6][1]; BOOT.pengaturan.strukBtServiceUUID = pairs[7][1];
+      BOOT.pengaturan.strukBtCharUUID = pairs[8][1];
+    }
+    toast('Identitas struk tersimpan.');
+  }
+
+  // Bikin baris teks struk dari daftar item + info transaksi.
+  // widthChars: 32 utk 58mm, 48 utk 80mm (ukuran umum font default printer thermal).
+  function buildStrukLines_(items, meta, widthChars){
+    var P = (BOOT && BOOT.pengaturan) || {};
+    var L = [];
+    var center = function(s){ s = s || ''; var pad = Math.max(0, Math.floor((widthChars - s.length) / 2)); return new Array(pad+1).join(' ') + s; };
+    var line = function(ch){ return new Array(widthChars+1).join(ch || '-'); };
+    var twoCol = function(a, b){
+      a = a || ''; b = b || '';
+      var space = widthChars - a.length - b.length;
+      if (space < 1) { a = a.slice(0, widthChars - b.length - 1); space = 1; }
+      return a + new Array(space+1).join(' ') + b;
+    };
+    var wrap = function(s){
+      s = s || ''; var out = [];
+      while (s.length > widthChars){ out.push(s.slice(0, widthChars)); s = s.slice(widthChars); }
+      out.push(s);
+      return out;
+    };
+
+    if (P.strukSekolah) L.push(center(P.strukSekolah));
+    L.push(center(P.strukProgram || 'BESIC Store'));
+    if (P.strukAlamat) wrap(P.strukAlamat).forEach(function(s){ L.push(center(s)); });
+    if (P.strukKontak) L.push(center(P.strukKontak));
+    L.push(line('='));
+    L.push('Sesi   : ' + (meta.sesiNama || '-'));
+    L.push('Tanggal: ' + meta.waktu.toLocaleDateString('id-ID') + ' ' + meta.waktu.toLocaleTimeString('id-ID', {hour:'2-digit',minute:'2-digit'}));
+    L.push('Kasir  : ' + (meta.kasir || '-'));
+    if (meta.pelanggan) L.push('Plgn   : ' + meta.pelanggan);
+    L.push(line('-'));
+    var total = 0;
+    items.forEach(function(it){
+      var subtotal = it.qty * it.harga;
+      total += subtotal;
+      wrap(it.nama).forEach(function(s){ L.push(s); });
+      L.push(twoCol('  ' + it.qty + ' x ' + rupiah(it.harga), rupiah(subtotal)));
+    });
+    L.push(line('-'));
+    L.push(twoCol('TOTAL', rupiah(total)));
+    L.push(twoCol('Status', meta.statusBayar || 'Lunas'));
+    L.push(line('='));
+    if (P.strukFooter) wrap(P.strukFooter).forEach(function(s){ L.push(center(s)); });
+    L.push('');
+    return L;
+  }
+
+  function cetakStruk(items, meta){
+    if (!items || !items.length){ toast('Tidak ada item untuk dicetak.'); return; }
+    var P = (BOOT && BOOT.pengaturan) || {};
+    var lebar = String(P.strukLebarKertas || '58');
+    var widthChars = (lebar === '80') ? 48 : 32;
+    var lines = buildStrukLines_(items, meta, widthChars);
+    var teks = lines.join('\n');
+
+    if ((P.strukMetode || 'browser') === 'bluetooth'){
+      cetakViaBluetooth_(teks).catch(function(err){
+        console.error(err);
+        toast('Gagal cetak Bluetooth: ' + (err && err.message ? err.message : String(err)) + ' — coba metode Dialog Print biasa.');
+      });
+    } else {
+      cetakViaBrowser_(teks, lebar);
+    }
+  }
+
+  function cetakViaBrowser_(teks, lebar){
+    var area = document.getElementById('strukPrintArea');
+    area.className = (lebar === '80') ? 'struk-80' : 'struk-58';
+    document.getElementById('strukPrintBody').textContent = teks;
+    setTimeout(function(){ window.print(); }, 50);
+  }
+
+  // ESC/POS dasar: init, teks (latin1), feed, full cut.
+  function teksKeEscPos_(teks){
+    var enc = new TextEncoder(); // UTF-8; cukup utk teks umum, karakter aneh bisa gak presisi di printer lawas
+    var body = enc.encode(teks + '\n\n\n');
+    var init = new Uint8Array([0x1B, 0x40]); // ESC @  = reset printer
+    var cut = new Uint8Array([0x1D, 0x56, 0x00]); // GS V 0 = full cut
+    var out = new Uint8Array(init.length + body.length + cut.length);
+    out.set(init, 0); out.set(body, init.length); out.set(cut, init.length + body.length);
+    return out;
+  }
+
+  async function cetakViaBluetooth_(teks){
+    if (!navigator.bluetooth){
+      throw new Error('Browser ini tidak mendukung Web Bluetooth (pakai Chrome di Android/desktop, bukan Safari/iOS).');
+    }
+    var P = (BOOT && BOOT.pengaturan) || {};
+    var serviceUUID = P.strukBtServiceUUID || BT_DEFAULT_SERVICE_UUID;
+    var charUUID = P.strukBtCharUUID || BT_DEFAULT_CHAR_UUID;
+
+    if (!btPrinterCache || !btPrinterCache.device.gatt.connected){
+      var device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [serviceUUID] }],
+        optionalServices: [serviceUUID]
+      });
+      var server = await device.gatt.connect();
+      var service = await server.getPrimaryService(serviceUUID);
+      var characteristic = await service.getCharacteristic(charUUID);
+      btPrinterCache = { device: device, characteristic: characteristic };
+      toast('Printer tersambung: ' + (device.name || 'Bluetooth printer'));
+    }
+
+    var bytes = teksKeEscPos_(teks);
+    var CHUNK = 180; // banyak printer BLE cuma terima potongan kecil per write
+    for (var i = 0; i < bytes.length; i += CHUNK){
+      await btPrinterCache.characteristic.writeValue(bytes.slice(i, i + CHUNK));
+    }
+    toast('Struk dikirim ke printer.');
+  }
+
+  function tesCetakStruk(){
+    var dummyItems = [
+      { nama: 'Es Teh Manis', qty: 2, harga: 5000 },
+      { nama: 'Nasi Goreng Spesial BESIC', qty: 1, harga: 15000 }
+    ];
+    var meta = { sesiNama: '(Tes Cetak)', kasir: 'Contoh', pelanggan: '', statusBayar: 'Lunas', waktu: new Date() };
+    cetakStruk(dummyItems, meta);
+  }
+
   function manualRefresh(){
     toast('Memuat ulang data dari spreadsheet…');
     loadDashboard();
@@ -2383,5 +2600,7 @@
     });
   }
 </script>
+<div id="strukPrintArea"><pre class="struk-body" id="strukPrintBody"></pre></div>
+
 </body>
 </html>
