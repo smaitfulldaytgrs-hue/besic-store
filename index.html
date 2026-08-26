@@ -1187,7 +1187,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       var total = c.qty * c.harga;
       var payload = { sesiId: BOOT.sesiAktif.ID, item: c.nama, qty: c.qty, hargaSatuan: c.harga, kasir: kasir, statusBayar: statusBayar, namaPelanggan: pelanggan, clientId: clientId, groupId: groupId };
       var badge = sudahBayar ? '' : ' · Belum Bayar';
-      addFeedOptimistic({ clientId: clientId, type:'pemasukan', title: c.nama, sub: c.qty+' x '+rupiah(c.harga)+' · '+(kasir||'-')+badge, value: rupiah(total), pending:true, statusBayar: statusBayar });
+      addFeedOptimistic({ clientId: clientId, type:'pemasukan', title: c.nama, sub: c.qty+' x '+rupiah(c.harga)+' · '+(kasir||'-')+badge, value: rupiah(total), total: total, pending:true, statusBayar: statusBayar, groupId: groupId, namaPelanggan: pelanggan });
       pushOutbox({ clientId: clientId, type:'transaksi', payload: payload });
     });
 
@@ -1465,7 +1465,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var fromServer = [];
     sesi.itemsPemasukan.forEach(function(it){
       var badge = (it.statusBayar === 'Belum Bayar') ? (' · '+(it.namaPelanggan||'-')) : '';
-      fromServer.push({ clientId: it.id, type:'pemasukan', title: it.item, sub: it.qty+' x '+rupiah(it.hargaSatuan)+' · '+(it.kasir||'-')+' · '+it.waktu+badge, value: rupiah(it.total), pending:false, statusBayar: it.statusBayar });
+      fromServer.push({ clientId: it.id, type:'pemasukan', title: it.item, sub: it.qty+' x '+rupiah(it.hargaSatuan)+' · '+(it.kasir||'-')+' · '+it.waktu+badge, value: rupiah(it.total), total: it.total, pending:false, statusBayar: it.statusBayar, groupId: it.groupId || '', namaPelanggan: it.namaPelanggan || '' });
     });
     sesi.itemsModal.forEach(function(it){
       var sub = (it.keterangan||'Modal belanja')+' · '+it.waktu;
@@ -1489,19 +1489,77 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       wrap.innerHTML = '<div class="empty">'+(currentJualanSubtab === 'jual' ? 'Belum ada penjualan di sesi ini.' : 'Belum ada modal/pemasukan lain di sesi ini.')+'</div>';
       return;
     }
-    wrap.innerHTML = filtered.map(function(e){
-      var isUnpaid = e.statusBayar === 'Belum Bayar';
-      var actions = e.pending ? '' :
-        '<div class="row-actions">' +
-        (isUnpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+e.clientId+'\',this)">Tandai Lunas</button>' : '') +
-        '<button class="edit-btn" onclick="editFeedEntry(\''+e.clientId+'\',\''+e.type+'\')">✎</button>' +
-        '<button class="del-btn" onclick="deleteFeedEntry(\''+e.clientId+'\',\''+e.type+'\',this)">×</button>' +
-        '</div>';
-      return '<div class="feed-item '+e.type+'">' +
-        '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') + (isUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '') +'</div>' +
-        '<div class="fsub">'+ escapeHtml(e.sub) +'</div></div>' +
-        '<div style="display:flex;align-items:center;">' +
-        '<div class="fval">'+ (e.type==='modal' ? '-' : '+') + e.value.replace('Rp ','') +'</div>' + actions +
+
+    if (currentJualanSubtab !== 'jual'){
+      wrap.innerHTML = filtered.map(function(e){
+        var actions = e.pending ? '' :
+          '<div class="row-actions">' +
+          '<button class="edit-btn" onclick="editFeedEntry(\''+e.clientId+'\',\''+e.type+'\')">✎</button>' +
+          '<button class="del-btn" onclick="deleteFeedEntry(\''+e.clientId+'\',\''+e.type+'\',this)">×</button>' +
+          '</div>';
+        return '<div class="feed-item '+e.type+'">' +
+          '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') +'</div>' +
+          '<div class="fsub">'+ escapeHtml(e.sub) +'</div></div>' +
+          '<div style="display:flex;align-items:center;">' +
+          '<div class="fval">-'+ e.value.replace('Rp ','') +'</div>' + actions +
+          '</div></div>';
+      }).join('');
+      return;
+    }
+
+    // Tab "Jual" (pemasukan): kelompokkan per GroupID (1 checkout jadi
+    // 1 kelompok), sama seperti di Riwayat — supaya kelihatan penjualan
+    // per pelanggan, bukan per baris item. Entri pending (belum sinkron
+    // ke server, jadi belum tentu punya groupId sama persis) tetap ikut
+    // dikelompokkan selama groupId-nya sudah dikirim bareng saat checkout.
+    var groups = [];
+    var groupIndex = {};
+    filtered.forEach(function(e){
+      var key = e.groupId || ('_single_' + e.clientId);
+      if (groupIndex[key]){ groupIndex[key].items.push(e); }
+      else { var g = { key:key, items:[e] }; groupIndex[key] = g; groups.push(g); }
+    });
+
+    wrap.innerHTML = groups.map(function(g){
+      var items = g.items;
+      var anyUnpaid = items.some(function(x){ return x.statusBayar === 'Belum Bayar'; });
+      var anyPending = items.some(function(x){ return x.pending; });
+      var idsCsv = items.filter(function(x){ return !x.pending; }).map(function(x){ return x.clientId; }).join(',');
+
+      if (items.length === 1){
+        var e = items[0];
+        var isUnpaid = e.statusBayar === 'Belum Bayar';
+        var actions = e.pending ? '' :
+          '<div class="row-actions">' +
+          (isUnpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+e.clientId+'\',this)">Tandai Lunas</button>' : '') +
+          '<button class="edit-btn" onclick="editFeedEntry(\''+e.clientId+'\',\''+e.type+'\')">✎</button>' +
+          '<button class="del-btn" onclick="deleteFeedEntry(\''+e.clientId+'\',\''+e.type+'\',this)">×</button>' +
+          '</div>';
+        return '<div class="feed-item pemasukan">' +
+          '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') + (isUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '') +'</div>' +
+          '<div class="fsub">'+ escapeHtml(e.sub) +'</div></div>' +
+          '<div style="display:flex;align-items:center;">' +
+          '<div class="fval">+'+ e.value.replace('Rp ','') +'</div>' + actions +
+          '</div></div>';
+      }
+
+      var first = items[0];
+      var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
+      var groupTotal = items.reduce(function(a,x){ return a + (x.total||0); }, 0);
+      var itemListHtml = items.map(function(x){
+        var itemActions = x.pending ? '<span class="pending-badge">mengirim…</span>' :
+          '<button class="edit-btn" style="padding:1px 5px;font-size:12px;" onclick="editFeedEntry(\''+x.clientId+'\',\''+x.type+'\')">✎</button>' +
+          '<button class="del-btn" style="padding:1px 5px;font-size:12px;" onclick="deleteFeedEntry(\''+x.clientId+'\',\''+x.type+'\',this)">×</button>';
+        return '<div class="fsub">'+escapeHtml(x.title)+' — '+escapeHtml(x.sub.split(' · ')[0])+' — '+rupiah(x.total||0)+itemActions+'</div>';
+      }).join('');
+      return '<div class="feed-item pemasukan group-multi" style="align-items:flex-start;"><div style="flex:1;">' +
+        '<div class="fname">'+escapeHtml(namaPelanggan)+' · '+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+(anyPending ? '<span class="pending-badge">mengirim…</span>' : '')+'</div>' +
+        itemListHtml +
+        '</div>' +
+        '<div class="row-actions" style="flex-direction:column;align-items:flex-end;gap:6px;">' +
+        (anyUnpaid && !anyPending ? '<button class="btn-lunas" onclick="tandaiSemuaLunas(\''+idsCsv+'\',this)">Semua Lunas</button>' : '') +
+        '<div class="fval">+'+rupiah(groupTotal).replace('Rp ','')+'</div>' +
+        (anyPending ? '' : '<button class="edit-btn" title="Ubah status bayar & nama pelanggan untuk semua item ini" onclick="openEditGrupTransaksi(\''+g.key+'\',\''+escapeHtml(anyUnpaid ? 'Belum Bayar' : 'Lunas')+'\',\''+escapeHtml(namaPelanggan==='Pelanggan (tanpa nama)' ? '' : namaPelanggan).replace(/'/g,"\\'")+'\')">✎ Grup</button>') +
         '</div></div>';
     }).join('');
   }
@@ -1650,6 +1708,13 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       fields: [
         { key:'nama', label:'Nama Sesi', type:'text' }
       ]
+    },
+    transaksiGrup: {
+      title: 'Edit Grup Penjualan', fn: 'updateGrupPembayaran', sheetKey: 'TRANSAKSI',
+      fields: [
+        { key:'statusBayar', label:'Status Bayar (semua item grup ini)', type:'select', options:['Lunas','Belum Bayar'] },
+        { key:'namaPelanggan', label:'Nama Pelanggan', type:'text' }
+      ]
     }
   };
 
@@ -1689,10 +1754,18 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     document.getElementById('editModal').classList.add('show');
   }
 
+  // Edit gabungan: ubah status bayar + nama pelanggan untuk SEMUA item
+  // dalam satu GroupID sekaligus (1 checkout). Field lain (qty, harga,
+  // item, kasir) tetap diedit per item lewat tombol ✎ di tiap baris.
+  function openEditGrupTransaksi(groupId, statusBayar, namaPelanggan){
+    openEditEntry('transaksiGrup', groupId, { statusBayar: statusBayar, namaPelanggan: namaPelanggan });
+  }
+
   function confirmEditEntry(){
     var cfg = EDIT_CONFIG[editState.type];
     if (!cfg) return;
     var payload = { id: editState.id };
+    if (editState.type === 'transaksiGrup') payload.groupId = editState.id;
     var hasEmpty = false;
     cfg.fields.forEach(function(f, i){
       var el = document.getElementById('editField_'+i);
@@ -1709,7 +1782,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       }
     });
     if (hasEmpty){ toast('Nama tidak boleh kosong.'); return; }
-    if (editState.type === 'transaksi' && payload.statusBayar === 'Belum Bayar' && !payload.namaPelanggan){
+    if ((editState.type === 'transaksi' || editState.type === 'transaksiGrup') && payload.statusBayar === 'Belum Bayar' && !payload.namaPelanggan){
       toast('Nama pelanggan wajib diisi kalau belum bayar.');
       return;
     }
