@@ -2139,15 +2139,52 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     wrap.innerHTML = DASH.sesiList.slice().reverse().map(function(s, idx){
       var id = 'rr_'+idx;
 
-      var pemasukanRows = s.itemsPemasukan.slice().reverse().map(function(it){
-        var unpaid = it.statusBayar === 'Belum Bayar';
-        return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' +
-          '<div class="row-actions">' +
-          (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\',this)">Lunas</button>' : '') +
-          '<div class="fval">'+rupiah(it.total)+'</div>' +
-          '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
-          '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+it.id+'\')">💬</button>' +
-          '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
+      // Kelompokkan per GroupID (1 checkout = 1 kelompok) biar kelihatan
+      // penjualan per pelanggan, bukan per baris item. Item lama tanpa
+      // GroupID (sebelum fitur ini ada) tetap tampil sendiri-sendiri.
+      var pemasukanGroups = [];
+      var groupIndex = {};
+      s.itemsPemasukan.slice().reverse().forEach(function(it){
+        var key = it.groupId || ('_single_' + it.id);
+        if (groupIndex[key]){ groupIndex[key].items.push(it); }
+        else { var g = { items: [it] }; groupIndex[key] = g; pemasukanGroups.push(g); }
+      });
+
+      var pemasukanRows = pemasukanGroups.map(function(g){
+        var items = g.items;
+        var first = items[0];
+        var anyUnpaid = items.some(function(x){ return x.statusBayar === 'Belum Bayar'; });
+        var groupTotal = items.reduce(function(a,x){ return a + x.total; }, 0);
+        var idsCsv = items.map(function(x){ return x.id; }).join(',');
+
+        if (items.length === 1){
+          var it = first, unpaid = anyUnpaid;
+          return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' +
+            '<div class="row-actions">' +
+            (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\',this)">Lunas</button>' : '') +
+            '<div class="fval">'+rupiah(it.total)+'</div>' +
+            '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
+            '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+it.id+'\')">💬</button>' +
+            '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
+        }
+
+        var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
+        var itemListHtml = items.map(function(x){
+          return '<div class="fsub">'+x.qty+' x '+escapeHtml(x.item)+' — '+rupiah(x.total)+
+            '<button class="edit-btn" style="padding:1px 5px;font-size:12px;" onclick="openEditRiwayatTransaksi(\''+x.id+'\',\''+escapeHtml(x.item).replace(/'/g,"\\'")+'\','+x.qty+','+x.hargaSatuan+',\''+escapeHtml(x.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(x.statusBayar||'Lunas')+'\',\''+escapeHtml(x.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div>';
+        }).join('');
+        return '<div class="feed-item pemasukan group-multi" style="align-items:flex-start;"><div style="flex:1;">' +
+          '<div class="fname"><span class="ficon">🧾</span>'+escapeHtml(namaPelanggan)+' · '+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div>' +
+          itemListHtml +
+          '<div class="fsub" style="margin-top:2px;color:var(--muted);">'+first.waktu+' · '+escapeHtml(first.kasir||'-')+'</div>' +
+          '</div>' +
+          '<div class="row-actions" style="flex-direction:column;align-items:flex-end;gap:6px;">' +
+          (anyUnpaid ? '<button class="btn-lunas" onclick="tandaiSemuaLunas(\''+idsCsv+'\',this)">Semua Lunas</button>' : '') +
+          '<div class="fval">'+rupiah(groupTotal)+'</div>' +
+          '<div style="display:flex;gap:2px;">' +
+          '<button class="edit-btn" title="Cetak struk gabungan" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+first.id+'\')">🖨️</button>' +
+          '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+first.id+'\')">💬</button>' +
+          '</div></div></div>';
       }).join('') || '<div class="empty" style="padding:14px 0;">Belum ada penjualan.</div>';
 
       var modalRows = s.itemsModal.slice().reverse().map(function(it){
