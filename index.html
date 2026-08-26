@@ -332,6 +332,8 @@
   .toggle-row:last-child{ border-bottom:none; }
   .toggle-row .tlabel{ font-size:14px; font-weight:600; color:var(--ink); }
   .toggle-row .tsub{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .tlabel{ font-size:14px; font-weight:600; color:var(--ink); }
+  .tsub{ font-size:12px; color:var(--muted); margin-top:2px; }
   .switch{ position:relative; width:44px; height:26px; flex:0 0 auto; }
   .switch input{ opacity:0; width:0; height:0; position:absolute; }
   .switch .slider{
@@ -539,6 +541,13 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         <button class="btn btn-primary btn-block" onclick="saveStrukSettings()">Simpan Identitas Struk</button>
         <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="tesCetakStruk()">🖨️ Tes Cetak Struk</button>
       </div>
+      <div class="form-card" style="margin-top:10px;">
+        <p class="block-title" style="margin:0 0 8px;">Kontak & Pembayaran (buat Kirim WA)</p>
+        <div class="field"><label>No. WA Guru Pendamping (wajib diisi buat kirim laporan)</label><input type="tel" id="setGuruWa" placeholder="mis. 0812xxxxxxxx"></div>
+        <div class="field"><label>No. Rekening (buat dikirim ke pelanggan)</label><input type="text" id="setInfoRekening" placeholder="mis. BCA 1234567890 a.n. OSIS BESIC"></div>
+        <div class="field"><label>No. GoPay (buat dikirim ke pelanggan)</label><input type="text" id="setInfoGopay" placeholder="mis. 0812xxxxxxxx a.n. OSIS BESIC"></div>
+        <button class="btn btn-primary btn-block" onclick="saveKontakSettings()">Simpan Kontak & Pembayaran</button>
+      </div>
     </section>
   </div>
 
@@ -603,6 +612,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         </div>
         <div class="draft-note" id="txDraftNote">✎ Keranjang tersimpan otomatis di HP ini</div>
         <button type="button" class="btn btn-ghost btn-block" id="cetakStrukTerakhirBtn" style="display:none;margin-top:8px;" onclick="cetakStrukTerakhir()">🖨️ Cetak Struk Transaksi Terakhir</button>
+        <button type="button" class="btn btn-ghost btn-block" id="kirimWaTerakhirBtn" style="display:none;margin-top:8px;" onclick="openWaModalTerakhir()">💬 Kirim Struk via WhatsApp</button>
       </div>
     </section>
 
@@ -740,6 +750,27 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     <button class="btn btn-gold btn-block" onclick="exportLaporan('excel')">⬇️ Unduh Excel</button>
     <button class="btn btn-primary btn-block" style="margin-top:8px;" onclick="exportLaporan('pdf')">⬇️ Unduh PDF</button>
     <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="closeModal('exportModal')">Batal</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="waModal">
+  <div class="modal-sheet">
+    <h3>💬 Kirim Struk via WhatsApp</h3>
+    <p class="tsub" id="waModalRingkasan" style="margin:-4px 0 10px;"></p>
+    <div class="field-row" style="align-items:center;">
+      <div style="flex:1;">
+        <div class="tlabel">Guru Pendamping</div>
+        <div class="tsub" id="waGuruNomorTampil">-</div>
+      </div>
+      <button class="btn btn-gold" style="flex:0 0 auto;" onclick="kirimWaGuru()">Kirim ke Guru</button>
+    </div>
+    <p class="tsub" id="waGuruWarning" style="display:none;color:#C1443C;margin:6px 0 0;">Isi dulu No. WA Guru Pendamping di tab Pengaturan.</p>
+    <div style="height:1px;background:var(--line);margin:14px 0;"></div>
+    <div class="field"><label>No. WA Pelanggan (opsional)</label><input type="tel" id="waPelangganNomor" placeholder="mis. 0812xxxxxxxx — kosongkan kalau gak perlu kirim ke pelanggan"></div>
+    <p class="tsub" style="margin:-4px 0 10px;">Pesan ke pelanggan otomatis nyertain info rekening & GoPay (kalau sudah diisi di Pengaturan).</p>
+    <button class="btn btn-primary btn-block" onclick="kirimWaPelanggan()">Kirim ke Pelanggan</button>
+    <p class="tsub" style="margin:10px 0 0;">Browser cuma bisa buka 1 chat WA per klik — kirim ke Guru dan Pelanggan lewat dua tombol terpisah ya.</p>
+    <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeModal('waModal')">Tutup</button>
   </div>
 </div>
 
@@ -1166,6 +1197,8 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     };
     var btnCetak = document.getElementById('cetakStrukTerakhirBtn');
     if (btnCetak) btnCetak.style.display = 'flex';
+    var btnWa = document.getElementById('kirimWaTerakhirBtn');
+    if (btnWa) btnWa.style.display = 'flex';
 
     var jumlahItem = cart.length;
     localStorage.setItem('besic_last_kasir', kasir);
@@ -1181,6 +1214,13 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     flushOutbox();
     toast(sudahBayar ? ('Transaksi tersimpan: ' + jumlahItem + ' item untuk pelanggan ini')
                       : ('Dicatat sebagai piutang: ' + jumlahItem + ' item atas nama ' + pelanggan));
+
+    if (BOOT.pengaturan && BOOT.pengaturan.guruWaNomor){
+      if (confirm('Kirim laporan ke Guru Pendamping via WhatsApp?')){
+        waSnapshot = lastStrukSnapshot;
+        kirimWaGuru();
+      }
+    }
   }
 
   // ============================================================
@@ -1800,6 +1840,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         document.getElementById('setStrukBtService').value = boot.pengaturan.strukBtServiceUUID || '';
         document.getElementById('setStrukBtChar').value = boot.pengaturan.strukBtCharUUID || '';
         onStrukMetodeChange();
+        document.getElementById('setGuruWa').value = boot.pengaturan.guruWaNomor || '';
+        document.getElementById('setInfoRekening').value = boot.pengaturan.infoRekening || '';
+        document.getElementById('setInfoGopay').value = boot.pengaturan.infoGopay || '';
         var lastKasir = localStorage.getItem('besic_last_kasir');
         var lastPengisi = localStorage.getItem('besic_last_pengisi');
         if (lastKasir) document.getElementById('txKasir').value = lastKasir;
@@ -2103,6 +2146,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\',this)">Lunas</button>' : '') +
           '<div class="fval">'+rupiah(it.total)+'</div>' +
           '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
+          '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+it.id+'\')">💬</button>' +
           '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
       }).join('') || '<div class="empty" style="padding:14px 0;">Belum ada penjualan.</div>';
 
@@ -2210,6 +2254,127 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var items = satuGrup.map(function(x){ return { nama: x.item, qty: x.qty, harga: x.hargaSatuan }; });
     var meta = { sesiNama: sesi.nama, kasir: it.kasir, pelanggan: it.namaPelanggan, statusBayar: it.statusBayar, waktuDisplay: it.waktu };
     cetakStruk(items, meta);
+  }
+
+  // ============================================================
+  // KIRIM STRUK VIA WHATSAPP — wajib ke Guru Pendamping (laporan),
+  // opsional ke Pelanggan (sertakan info rekening/GoPay).
+  // ============================================================
+  var waSnapshot = null; // { items, meta } — data yang lagi disiapkan buat modal WA
+
+  function normalisasiNomorWa_(nomor){
+    var digits = String(nomor || '').replace(/[^0-9]/g, '');
+    if (!digits) return '';
+    if (digits.charAt(0) === '0') digits = '62' + digits.slice(1);
+    else if (digits.slice(0,2) !== '62') digits = '62' + digits;
+    return digits;
+  }
+
+  function bukaWaLink_(nomor, teks){
+    var n = normalisasiNomorWa_(nomor);
+    if (!n){ toast('Nomor WhatsApp tidak valid.'); return; }
+    window.open('https://wa.me/' + n + '?text=' + encodeURIComponent(teks), '_blank');
+  }
+
+  function buildWaTeks_(items, meta, untuk){
+    var P = (BOOT && BOOT.pengaturan) || {};
+    var L = [];
+    var judul = (untuk === 'guru') ? '📋 *Laporan Penjualan — Guru Pendamping*' : ('🧾 *Struk Pembelian — ' + (P.strukProgram || 'BESIC Store') + '*');
+    L.push(judul);
+    if (P.strukSekolah) L.push(P.strukSekolah);
+    L.push('');
+    L.push('Sesi: ' + (meta.sesiNama || '-'));
+    L.push('Tanggal: ' + (meta.waktuDisplay || (meta.waktu ? (meta.waktu.toLocaleDateString('id-ID')+' '+meta.waktu.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})) : '-')));
+    L.push('Kasir: ' + (meta.kasir || '-'));
+    if (meta.pelanggan) L.push('Pelanggan: ' + meta.pelanggan);
+    L.push('');
+    var total = 0;
+    items.forEach(function(it){
+      var subtotal = it.qty * it.harga;
+      total += subtotal;
+      L.push('• ' + it.nama + ' — ' + it.qty + ' x ' + rupiah(it.harga) + ' = ' + rupiah(subtotal));
+    });
+    L.push('');
+    L.push('*TOTAL: ' + rupiah(total) + '*');
+    L.push('Status: ' + (meta.statusBayar || 'Lunas'));
+
+    if (untuk === 'pelanggan'){
+      var infoBayar = [];
+      if (P.infoRekening) infoBayar.push('Rekening: ' + P.infoRekening);
+      if (P.infoGopay) infoBayar.push('GoPay: ' + P.infoGopay);
+      if (infoBayar.length){
+        L.push('');
+        L.push('_Info Pembayaran:_');
+        infoBayar.forEach(function(s){ L.push(s); });
+      }
+      L.push('');
+      if (P.strukFooter) L.push(P.strukFooter);
+    } else {
+      L.push('');
+      L.push('_Dikirim otomatis dari aplikasi kas ' + (P.strukProgram || 'BESIC Store') + ' sebagai catatan laporan._');
+    }
+    return L.join('\n');
+  }
+
+  function isiRingkasanWaModal_(){
+    var P = (BOOT && BOOT.pengaturan) || {};
+    var n = waSnapshot.items.length, total = waSnapshot.items.reduce(function(a,it){ return a + it.qty*it.harga; }, 0);
+    document.getElementById('waModalRingkasan').textContent = n + ' item · ' + rupiah(total) + ' · ' + (waSnapshot.meta.sesiNama || '-');
+    var guruEl = document.getElementById('waGuruNomorTampil');
+    var warnEl = document.getElementById('waGuruWarning');
+    if (P.guruWaNomor){ guruEl.textContent = P.guruWaNomor; warnEl.style.display = 'none'; }
+    else { guruEl.textContent = 'Belum diisi'; warnEl.style.display = 'block'; }
+    document.getElementById('waPelangganNomor').value = '';
+  }
+
+  function openWaModalTerakhir(){
+    if (!lastStrukSnapshot){ toast('Belum ada transaksi buat dikirim.'); return; }
+    waSnapshot = lastStrukSnapshot;
+    isiRingkasanWaModal_();
+    document.getElementById('waModal').classList.add('show');
+  }
+
+  function openWaModalDariRiwayat(sesiId, itemId){
+    var sesi = DASH.sesiList.find(function(s){ return s.id === sesiId; });
+    if (!sesi){ toast('Sesi tidak ditemukan.'); return; }
+    var it = sesi.itemsPemasukan.find(function(x){ return x.id === itemId; });
+    if (!it){ toast('Transaksi tidak ditemukan.'); return; }
+    var satuGrup = it.groupId ? sesi.itemsPemasukan.filter(function(x){ return x.groupId === it.groupId; }) : [it];
+    waSnapshot = {
+      items: satuGrup.map(function(x){ return { nama: x.item, qty: x.qty, harga: x.hargaSatuan }; }),
+      meta: { sesiNama: sesi.nama, kasir: it.kasir, pelanggan: it.namaPelanggan, statusBayar: it.statusBayar, waktuDisplay: it.waktu }
+    };
+    isiRingkasanWaModal_();
+    document.getElementById('waModal').classList.add('show');
+  }
+
+  function kirimWaGuru(){
+    var P = (BOOT && BOOT.pengaturan) || {};
+    if (!P.guruWaNomor){ toast('Isi dulu No. WA Guru Pendamping di tab Pengaturan.'); return; }
+    if (!waSnapshot){ toast('Data transaksi tidak ditemukan.'); return; }
+    bukaWaLink_(P.guruWaNomor, buildWaTeks_(waSnapshot.items, waSnapshot.meta, 'guru'));
+  }
+
+  function kirimWaPelanggan(){
+    var nomor = document.getElementById('waPelangganNomor').value.trim();
+    if (!nomor){ toast('Isi dulu No. WA Pelanggan.'); return; }
+    if (!waSnapshot){ toast('Data transaksi tidak ditemukan.'); return; }
+    bukaWaLink_(nomor, buildWaTeks_(waSnapshot.items, waSnapshot.meta, 'pelanggan'));
+  }
+
+  function saveKontakSettings(){
+    var pairs = [
+      ['GuruWaNomor', document.getElementById('setGuruWa').value.trim()],
+      ['InfoRekening', document.getElementById('setInfoRekening').value.trim()],
+      ['InfoGopay', document.getElementById('setInfoGopay').value.trim()]
+    ];
+    pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
+    if (BOOT && BOOT.pengaturan){
+      BOOT.pengaturan.guruWaNomor = pairs[0][1];
+      BOOT.pengaturan.infoRekening = pairs[1][1];
+      BOOT.pengaturan.infoGopay = pairs[2][1];
+    }
+    toast('Kontak & info pembayaran tersimpan.');
   }
 
   function onStrukMetodeChange(){
