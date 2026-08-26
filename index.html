@@ -393,6 +393,9 @@
 .struk-58{ width:58mm; }
 .struk-80{ width:80mm; }
 .struk-body{ font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.4; white-space:pre-wrap; color:#000; padding:4px 2px; }
+.mini-spinner{ display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-top-color:transparent; border-radius:50%; animation:mspin .6s linear infinite; opacity:.7; vertical-align:middle; }
+@keyframes mspin{ to{ transform:rotate(360deg); } }
+button.is-busy{ opacity:.6; cursor:progress !important; }
 </style>
 </head>
 <body>
@@ -771,6 +774,20 @@
       if (!data || !data.ok) throw new Error((data && data.error) || 'Terjadi kesalahan di server.');
       return data.result;
     });
+  }
+
+  function setBtnBusy_(btn, busy){
+    if (!btn) return;
+    if (busy){
+      if (btn.dataset.origHtml === undefined) btn.dataset.origHtml = btn.innerHTML;
+      btn.innerHTML = '<span class="mini-spinner"></span>';
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+    } else {
+      if (btn.dataset.origHtml !== undefined){ btn.innerHTML = btn.dataset.origHtml; delete btn.dataset.origHtml; }
+      btn.disabled = false;
+      btn.classList.remove('is-busy');
+    }
   }
 
   // ============================================================
@@ -1194,7 +1211,7 @@
         '<div class="row-actions">' +
         '<div class="lprice">'+rupiah(m.harga)+'</div>' +
         '<button class="edit-btn" onclick="openEditMenuItem(\''+m.id+'\')">✎</button>' +
-        '<button class="del-btn" onclick="hapusMenuItem(\''+m.id+'\')">×</button>' +
+        '<button class="del-btn" onclick="hapusMenuItem(\''+m.id+'\',this)">×</button>' +
         '</div></div>';
     }).join('');
   }
@@ -1230,14 +1247,15 @@
     }).catch(function(err){ toast('Gagal menambah menu: '+err.message); });
   }
 
-  function hapusMenuItem(id){
+  function hapusMenuItem(id, btnEl){
     if (!confirm('Hapus menu ini dari daftar?')) return;
+    setBtnBusy_(btnEl, true);
     gasCall('hapusEntri', ['MENU', id]).then(function(){
       BOOT.daftarMenu = (BOOT.daftarMenu||[]).filter(function(m){ return m.id !== id; });
       renderMenuQuickGrid();
       renderMenuList();
       toast('Menu dihapus');
-    }).catch(function(err){ toast('Gagal hapus menu: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus menu: '+err.message); });
   }
 
   // ============================================================
@@ -1435,9 +1453,9 @@
       var isUnpaid = e.statusBayar === 'Belum Bayar';
       var actions = e.pending ? '' :
         '<div class="row-actions">' +
-        (isUnpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+e.clientId+'\')">Tandai Lunas</button>' : '') +
+        (isUnpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+e.clientId+'\',this)">Tandai Lunas</button>' : '') +
         '<button class="edit-btn" onclick="editFeedEntry(\''+e.clientId+'\',\''+e.type+'\')">✎</button>' +
-        '<button class="del-btn" onclick="deleteFeedEntry(\''+e.clientId+'\',\''+e.type+'\')">×</button>' +
+        '<button class="del-btn" onclick="deleteFeedEntry(\''+e.clientId+'\',\''+e.type+'\',this)">×</button>' +
         '</div>';
       return '<div class="feed-item '+e.type+'">' +
         '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') + (isUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '') +'</div>' +
@@ -1448,13 +1466,14 @@
     }).join('');
   }
 
-  function tandaiLunasCepat(id){
+  function tandaiLunasCepat(id, btnEl){
+    setBtnBusy_(btnEl, true);
     gasCall('tandaiLunas', [id]).then(function(){
       feedEntries.forEach(function(e){ if (e.clientId === id) e.statusBayar = 'Lunas'; });
       renderFeed();
       loadDashboard();
       toast('Ditandai lunas');
-    }).catch(function(err){ toast('Gagal menandai lunas: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal menandai lunas: '+err.message); });
   }
 
   // Cari data mentah item feed (dari DASH, hasil sinkron server) untuk
@@ -1479,15 +1498,16 @@
     }
   }
 
-  function deleteFeedEntry(id, type){
+  function deleteFeedEntry(id, type, btnEl){
     if (!confirm('Hapus catatan ini?')) return;
+    setBtnBusy_(btnEl, true);
     var sheetKey = type === 'modal' ? 'MODAL' : (type === 'pemasukanLain' ? 'PEMASUKAN_LAIN' : 'TRANSAKSI');
     gasCall('hapusEntri', [sheetKey, id]).then(function(){
       feedEntries = feedEntries.filter(function(e){ return e.clientId !== id; });
       renderFeed();
       loadDashboard();
       toast('Catatan dihapus');
-    }).catch(function(err){ toast('Gagal hapus: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus: '+err.message); });
   }
 
   // ============================================================
@@ -1510,16 +1530,17 @@
     }).catch(function(err){ toast('Gagal memulai sesi: ' + err.message); });
   }
 
-  function tutupSesiSekarang(){
+  function tutupSesiSekarang(btnEl){
     if (!BOOT.sesiAktif) return;
     if (!confirm('Tutup sesi "'+BOOT.sesiAktif.Nama+'"? Kamu masih bisa lihat riwayatnya nanti.')) return;
     var id = BOOT.sesiAktif.ID;
+    setBtnBusy_(btnEl, true);
     gasCall('tutupSesi', [id]).then(function(){
       BOOT.sesiAktif = null;
       renderSesiBar();
       toast('Sesi ditutup');
       loadDashboard();
-    }).catch(function(err){ toast('Gagal menutup sesi: ' + err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal menutup sesi: ' + err.message); });
   }
 
   // ============================================================
@@ -1677,7 +1698,7 @@
     if (BOOT.sesiAktif){
       nameEl.innerHTML = escapeHtml(BOOT.sesiAktif.Nama) + ' · Aktif ' +
         '<button type="button" class="edit-btn" style="font-size:12px;" onclick="openEditSesi(\''+BOOT.sesiAktif.ID+'\',\''+escapeHtml(BOOT.sesiAktif.Nama).replace(/'/g,"\\'")+'\')">✎</button>';
-      actionsEl.innerHTML = '<button class="btn btn-ghost" onclick="tutupSesiSekarang()">Tutup Sesi</button>';
+      actionsEl.innerHTML = '<button class="btn btn-ghost" onclick="tutupSesiSekarang(this)">Tutup Sesi</button>';
     } else {
       nameEl.textContent = 'Belum ada sesi aktif';
       actionsEl.innerHTML = '<button class="btn btn-primary" onclick="openStartSesiModal()">Mulai Sesi</button>';
@@ -1904,14 +1925,15 @@
       return '<div class="piutang-card">' +
         '<div class="pc-head"><div class="pc-name">'+escapeHtml(name)+'</div><div class="pc-total">'+rupiah(g.total)+'</div></div>' +
         itemRows +
-        '<button type="button" class="btn-lunas" style="margin-top:8px;" onclick="tandaiSemuaLunas(\''+ids.join(',')+'\')">Tandai Semua Lunas</button>' +
+        '<button type="button" class="btn-lunas" style="margin-top:8px;" onclick="tandaiSemuaLunas(\''+ids.join(',')+'\',this)">Tandai Semua Lunas</button>' +
       '</div>';
     }).join('');
   }
 
-  function tandaiSemuaLunas(idsCsv){
+  function tandaiSemuaLunas(idsCsv, btnEl){
     var ids = idsCsv.split(',');
     if (!confirm('Tandai '+ids.length+' item ini sebagai lunas?')) return;
+    setBtnBusy_(btnEl, true);
     var remaining = ids.length;
     var failed = 0;
     ids.forEach(function(id){
@@ -1923,7 +1945,7 @@
         }
       }).catch(function(){
         remaining--; failed++;
-        if (remaining === 0){ loadDashboard(); toast('Sebagian ditandai lunas ('+failed+' gagal)'); }
+        if (remaining === 0){ setBtnBusy_(btnEl, false); loadDashboard(); toast('Sebagian ditandai lunas ('+failed+' gagal)'); }
       });
     });
   }
@@ -2030,7 +2052,7 @@
         '<div class="row-actions">' +
         '<div class="lprice">'+rupiah(it.harga)+'</div>' +
         '<button class="edit-btn" onclick="openEditLogEntry('+args+')">✎</button>' +
-        '<button class="del-btn" onclick="hapusLogEntry(\''+sheetKey+'\',\''+it.id+'\',\''+elId+'\')">×</button>' +
+        '<button class="del-btn" onclick="hapusLogEntry(\''+sheetKey+'\',\''+it.id+'\',\''+elId+'\',this)">×</button>' +
         '</div></div>';
     }).join('');
   }
@@ -2052,9 +2074,10 @@
     openEditEntry('pemasukanLain', id, { item: item, jumlah: jumlah, keterangan: keterangan, pengisi: pengisi });
   }
 
-  function hapusLogEntry(sheetKey, id, elId){
+  function hapusLogEntry(sheetKey, id, elId, btnEl){
     var label = (sheetKey === 'INVENTARIS') ? 'inventaris' : 'kegiatan';
     if (!confirm('Hapus data '+label+' ini?')) return;
+    setBtnBusy_(btnEl, true);
     gasCall('hapusEntri', [sheetKey, id]).then(function(){
       if (elId === 'inventarisList' && DASH){
         DASH.inventaris = (DASH.inventaris||[]).filter(function(x){ return x.id !== id; });
@@ -2064,7 +2087,7 @@
       if (DASH) renderLogList(elId, elId === 'inventarisList' ? DASH.inventaris : DASH.kegiatan);
       toast('Data '+label+' dihapus');
       loadDashboard(); // sinkronkan ulang total & saldo
-    }).catch(function(err){ toast('Gagal hapus: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus: '+err.message); });
   }
 
   function renderRiwayat(){
@@ -2077,7 +2100,7 @@
         var unpaid = it.statusBayar === 'Belum Bayar';
         return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' +
           '<div class="row-actions">' +
-          (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\')">Lunas</button>' : '') +
+          (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\',this)">Lunas</button>' : '') +
           '<div class="fval">'+rupiah(it.total)+'</div>' +
           '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
           '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
