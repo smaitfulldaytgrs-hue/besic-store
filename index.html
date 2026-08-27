@@ -154,12 +154,15 @@
   .piutang-card .pc-total{ font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:13.5px; color:var(--rust); }
   .piutang-card .pc-item{ font-size:12px; color:var(--muted); padding:2px 0; }
   .feed-item .pending-badge{font-size:9.5px;background:#FCEFD4;color:var(--gold-deep);padding:2px 6px;border-radius:6px;font-weight:700;margin-left:6px;}
-  .feed-item .del-btn{background:none;border:none;color:var(--muted);font-size:16px;padding:2px 6px;cursor:pointer;}
+  .feed-item .del-btn{background:none;border:1px solid var(--line);color:var(--rust);font-size:19px;line-height:1;padding:9px 12px;min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;cursor:pointer;}
+  .del-btn{background:none;border:1px solid var(--line);color:var(--rust);font-size:19px;line-height:1;padding:9px 12px;min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;cursor:pointer;}
+  .del-btn:hover, .del-btn:active{background:#FBEAE9;}
   .log-item .del-btn{background:none;border:none;color:var(--muted);font-size:17px;line-height:1;padding:2px 7px;cursor:pointer;border-radius:8px;transition:background .15s ease,color .15s ease;}
   .log-item .del-btn:hover{background:#F6E8E6;color:#C1443C;}
-  .edit-btn{background:none;border:none;color:var(--muted);font-size:14px;line-height:1;padding:2px 7px;cursor:pointer;border-radius:8px;transition:background .15s ease,color .15s ease;}
-  .edit-btn:hover{background:#F0F4EE;color:var(--ink-2);}
-  .row-actions{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
+  .edit-btn{background:none;border:1px solid var(--line);color:var(--muted);font-size:16px;line-height:1;padding:9px 12px;min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:11px;transition:background .15s ease,color .15s ease;}
+  .edit-btn:hover, .edit-btn:active{background:#F0F4EE;color:var(--ink-2);}
+  .edit-btn.text{width:auto;font-size:13px;font-weight:700;gap:6px;padding:9px 14px;}
+  .row-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
 
   /* ---------- INPUT JUALAN — grid menu & keranjang ---------- */
   .field-hint{font-size:12px;color:var(--muted);margin:-6px 0 12px;}
@@ -274,6 +277,27 @@
   .receipt-detail.open{display:block;}
   .receipt-total-row{display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;padding:7px 2px 2px;color:var(--ink);}
   .receipt-total-row .rt-piutang{font-weight:500;font-size:11px;color:var(--rust);display:block;text-align:right;margin-top:1px;}
+
+  /* ---------- REKAP PER HARI (di atas kartu Riwayat) ---------- */
+  .day-summary{
+    background:linear-gradient(160deg, var(--ink) 0%, var(--ink-2) 100%); color:var(--cream);
+    border-radius:14px; padding:12px 15px; margin:18px 0 8px;
+  }
+  .day-summary:first-child{margin-top:0;}
+  .day-summary .ds-date{font-family:'Fraunces',serif;font-weight:600;font-size:14.5px;margin-bottom:8px;}
+  .day-summary .ds-row{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;color:rgba(251,246,236,.85);}
+  .day-summary .ds-row .num{font-weight:700;color:var(--cream);}
+  .day-summary .ds-row.jual .num{color:#F3D28C;}
+  .day-summary .ds-row.modal .num{color:#F0A79E;}
+
+  /* ---------- MODAL KELOLA TRANSAKSI GRUP (gd = group detail) ---------- */
+  .gd-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);}
+  .gd-item:last-child{border-bottom:none;}
+  .gd-item .gd-info{flex:1;min-width:0;}
+  .gd-item .gd-name{font-weight:700;font-size:14px;}
+  .gd-item .gd-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .gd-item .gd-val{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13.5px;white-space:nowrap;color:var(--ink-2);}
+  .gd-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
 
   /* ---------- TAB KATEGORI di dalam kartu Riwayat ---------- */
   .receipt-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
@@ -735,6 +759,16 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     <div id="editModalFields"></div>
     <button class="btn btn-gold btn-block" onclick="confirmEditEntry()">Simpan Perubahan</button>
     <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="closeModal('editModal')">Batal</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="groupDetailModal">
+  <div class="modal-sheet">
+    <h3 id="groupDetailTitle">Detail Transaksi</h3>
+    <p class="tsub" id="groupDetailSub" style="margin:-8px 0 12px;"></p>
+    <div id="groupDetailGrupAction"></div>
+    <div id="groupDetailList"></div>
+    <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="closeModal('groupDetailModal')">Tutup</button>
   </div>
 </div>
 
@@ -1532,8 +1566,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         var actions = e.pending ? '' :
           '<div class="row-actions">' +
           (isUnpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+e.clientId+'\',this)">Tandai Lunas</button>' : '') +
-          '<button class="edit-btn" onclick="editFeedEntry(\''+e.clientId+'\',\''+e.type+'\')">✎</button>' +
-          '<button class="del-btn" onclick="deleteFeedEntry(\''+e.clientId+'\',\''+e.type+'\',this)">×</button>' +
+          '<button class="edit-btn" title="Kelola transaksi ini" onclick="openGroupDetailFeed(\''+g.key+'\')">✎</button>' +
           '</div>';
         return '<div class="feed-item pemasukan">' +
           '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') + (isUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '') +'</div>' +
@@ -1547,10 +1580,8 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
       var groupTotal = items.reduce(function(a,x){ return a + (x.total||0); }, 0);
       var itemListHtml = items.map(function(x){
-        var itemActions = x.pending ? '<span class="pending-badge">mengirim…</span>' :
-          '<button class="edit-btn" style="padding:1px 5px;font-size:12px;" onclick="editFeedEntry(\''+x.clientId+'\',\''+x.type+'\')">✎</button>' +
-          '<button class="del-btn" style="padding:1px 5px;font-size:12px;" onclick="deleteFeedEntry(\''+x.clientId+'\',\''+x.type+'\',this)">×</button>';
-        return '<div class="fsub">'+escapeHtml(x.title)+' — '+escapeHtml(x.sub.split(' · ')[0])+' — '+rupiah(x.total||0)+itemActions+'</div>';
+        var pendingTag = x.pending ? ' <span class="pending-badge">mengirim…</span>' : '';
+        return '<div class="fsub">'+escapeHtml(x.title)+' — '+escapeHtml(x.sub.split(' · ')[0])+' — '+rupiah(x.total||0)+pendingTag+'</div>';
       }).join('');
       return '<div class="feed-item pemasukan group-multi" style="align-items:flex-start;"><div style="flex:1;">' +
         '<div class="fname">'+escapeHtml(namaPelanggan)+' · '+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+(anyPending ? '<span class="pending-badge">mengirim…</span>' : '')+'</div>' +
@@ -1559,7 +1590,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         '<div class="row-actions" style="flex-direction:column;align-items:flex-end;gap:6px;">' +
         (anyUnpaid && !anyPending ? '<button class="btn-lunas" onclick="tandaiSemuaLunas(\''+idsCsv+'\',this)">Semua Lunas</button>' : '') +
         '<div class="fval">+'+rupiah(groupTotal).replace('Rp ','')+'</div>' +
-        (anyPending ? '' : '<button class="edit-btn" title="Ubah status bayar & nama pelanggan untuk semua item ini" onclick="openEditGrupTransaksi(\''+g.key+'\',\''+escapeHtml(anyUnpaid ? 'Belum Bayar' : 'Lunas')+'\',\''+escapeHtml(namaPelanggan==='Pelanggan (tanpa nama)' ? '' : namaPelanggan).replace(/'/g,"\\'")+'\')">✎ Grup</button>') +
+        (anyPending ? '' : '<button class="edit-btn" title="Kelola transaksi grup ini" onclick="openGroupDetailFeed(\''+g.key+'\')">✎</button>') +
         '</div></div>';
     }).join('');
   }
@@ -2190,6 +2221,123 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     openEditEntry('pemasukanLain', id, { item: item, jumlah: jumlah, keterangan: keterangan, pengisi: pengisi });
   }
 
+  // ============================================================
+  // MODAL "KELOLA TRANSAKSI" (group detail) — satu titik akses untuk
+  // lihat, edit, & hapus semua item penjualan dalam 1 kelompok checkout
+  // (atau 1 item saja kalau memang belum punya GroupID). Dipakai dari
+  // tombol ✎ tunggal di Input Jualan (feed sesi berjalan) maupun
+  // Riwayat (struk per sesi) — jadi tidak perlu banyak tombol kecil
+  // per baris lagi.
+  // ============================================================
+  var groupDetailState = { context: null, sesiId: null, groupKey: null };
+
+  function openGroupDetailFeed(groupKey){
+    var items = feedEntries.filter(function(e){
+      return e.type === 'pemasukan' && (e.groupId || ('_single_' + e.clientId)) === groupKey;
+    });
+    if (!items.length){ toast('Data tidak ditemukan.'); return; }
+    renderGroupDetailModal(items, 'feed', null, groupKey);
+  }
+
+  function openGroupDetailRiwayat(sesiId, groupKey){
+    var sesi = DASH.sesiList.find(function(s){ return s.id === sesiId; });
+    if (!sesi){ toast('Sesi tidak ditemukan.'); return; }
+    var items = sesi.itemsPemasukan.filter(function(it){
+      return (it.groupId || ('_single_' + it.id)) === groupKey;
+    });
+    if (!items.length){ toast('Data tidak ditemukan, coba muat ulang.'); return; }
+    renderGroupDetailModal(items, 'riwayat', sesiId, groupKey);
+  }
+
+  function renderGroupDetailModal(items, context, sesiId, groupKey){
+    groupDetailState = { context: context, sesiId: sesiId, groupKey: groupKey };
+    var first = items[0];
+    var namaPelanggan = first.namaPelanggan || '';
+    var total = items.reduce(function(a,x){ return a + (x.total||0); }, 0);
+    var isRealGroup = items.length > 1;
+
+    document.getElementById('groupDetailTitle').textContent = isRealGroup ? ('Transaksi · ' + (namaPelanggan || 'Pelanggan (tanpa nama)')) : 'Transaksi';
+    document.getElementById('groupDetailSub').textContent = items.length + ' item · Total ' + rupiah(total);
+
+    var grupActionEl = document.getElementById('groupDetailGrupAction');
+    grupActionEl.innerHTML = isRealGroup ?
+      '<button class="btn btn-ghost btn-block" style="margin-bottom:12px;" onclick="openGroupDetailEditGrup()">✎ Ubah Status Bayar &amp; Nama Pelanggan (semua item)</button>' : '';
+
+    document.getElementById('groupDetailList').innerHTML = items.map(function(it){
+      var id = context === 'feed' ? it.clientId : it.id;
+      var type = it.type || 'pemasukan';
+      var pending = context === 'feed' && it.pending;
+      var nameLabel = context === 'feed' ? it.title : it.item;
+      var subLabel = context === 'feed' ? it.sub : (it.qty + ' x ' + rupiah(it.hargaSatuan) + ' · ' + it.waktu + (it.statusBayar === 'Belum Bayar' ? ' · Belum Bayar' : ''));
+      var valLabel = context === 'feed' ? it.value : rupiah(it.total);
+      var actions = pending ? '<span class="pending-badge">mengirim…</span>' :
+        '<div class="gd-actions">' +
+        '<button class="edit-btn" title="Edit item" onclick="editGroupItem(\''+id+'\')">✎</button>' +
+        '<button class="del-btn" title="Hapus item" onclick="deleteGroupItem(\''+id+'\',this)">×</button>' +
+        '</div>';
+      return '<div class="gd-item"><div class="gd-info"><div class="gd-name">'+escapeHtml(nameLabel)+'</div><div class="gd-sub">'+escapeHtml(subLabel)+'</div></div>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<div class="gd-val">'+String(valLabel).replace('Rp ','+Rp ')+'</div>' + actions +
+        '</div></div>';
+    }).join('');
+
+    document.getElementById('groupDetailModal').classList.add('show');
+  }
+
+  function openGroupDetailEditGrup(){
+    var sesi, items, first;
+    if (groupDetailState.context === 'feed'){
+      items = feedEntries.filter(function(e){ return e.type === 'pemasukan' && (e.groupId || ('_single_' + e.clientId)) === groupDetailState.groupKey; });
+    } else {
+      sesi = DASH.sesiList.find(function(s){ return s.id === groupDetailState.sesiId; });
+      items = sesi ? sesi.itemsPemasukan.filter(function(it){ return (it.groupId || ('_single_' + it.id)) === groupDetailState.groupKey; }) : [];
+    }
+    if (!items.length){ toast('Data tidak ditemukan.'); return; }
+    first = items[0];
+    var anyUnpaid = items.some(function(x){ return x.statusBayar === 'Belum Bayar'; });
+    closeModal('groupDetailModal');
+    openEditGrupTransaksi(groupDetailState.groupKey, anyUnpaid ? 'Belum Bayar' : 'Lunas', first.namaPelanggan || '');
+  }
+
+  // Buka form edit item tunggal dari dalam modal Kelola Transaksi.
+  function editGroupItem(id){
+    closeModal('groupDetailModal');
+    if (groupDetailState.context === 'feed'){
+      editFeedEntry(id, 'pemasukan');
+      return;
+    }
+    var sesi = DASH.sesiList.find(function(s){ return s.id === groupDetailState.sesiId; });
+    var it = sesi ? sesi.itemsPemasukan.find(function(x){ return x.id === id; }) : null;
+    if (!it){ toast('Data belum sinkron, coba muat ulang.'); return; }
+    openEditRiwayatTransaksi(it.id, it.item, it.qty, it.hargaSatuan, it.kasir, it.statusBayar, it.namaPelanggan);
+  }
+
+  // Hapus 1 item dari dalam modal Kelola Transaksi — modal tetap terbuka
+  // dan otomatis menampilkan sisa item grup (atau tertutup kalau habis).
+  function deleteGroupItem(id, btnEl){
+    if (!confirm('Hapus item ini dari transaksi?')) return;
+    setBtnBusy_(btnEl, true);
+    gasCall('hapusEntri', ['TRANSAKSI', id]).then(function(){
+      toast('Item dihapus');
+      if (groupDetailState.context === 'feed'){
+        feedEntries = feedEntries.filter(function(e){ return e.clientId !== id; });
+        renderFeed();
+        loadDashboard();
+        var remaining = feedEntries.filter(function(e){ return e.type === 'pemasukan' && (e.groupId || ('_single_' + e.clientId)) === groupDetailState.groupKey; });
+        if (remaining.length) renderGroupDetailModal(remaining, 'feed', null, groupDetailState.groupKey);
+        else closeModal('groupDetailModal');
+      } else {
+        var gdSesiId = groupDetailState.sesiId, gdGroupKey = groupDetailState.groupKey;
+        loadDashboard(0, function(){
+          var sesi = DASH.sesiList.find(function(s){ return s.id === gdSesiId; });
+          var remaining = sesi ? sesi.itemsPemasukan.filter(function(it){ return (it.groupId || ('_single_' + it.id)) === gdGroupKey; }) : [];
+          if (remaining.length) renderGroupDetailModal(remaining, 'riwayat', gdSesiId, gdGroupKey);
+          else closeModal('groupDetailModal');
+        });
+      }
+    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus: '+err.message); });
+  }
+
   function hapusLogEntry(sheetKey, id, elId, btnEl){
     var label = (sheetKey === 'INVENTARIS') ? 'inventaris' : 'kegiatan';
     if (!confirm('Hapus data '+label+' ini?')) return;
@@ -2209,8 +2357,26 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function renderRiwayat(){
     var wrap = document.getElementById('riwayatList');
     if (!DASH.sesiList.length){ wrap.innerHTML = '<div class="empty">Belum ada sesi jualan.</div>'; return; }
-    wrap.innerHTML = DASH.sesiList.slice().reverse().map(function(s, idx){
-      var id = 'rr_'+idx;
+
+    // Kelompokkan sesi per tanggal (s.tanggal, mis. "28 Aug 2026") biar
+    // bisa ditampilkan rekap Total Jualan & Total Modal/Belanja per hari
+    // di atas daftar sesi hari itu — beberapa sesi di tanggal sama tetap
+    // digabung jadi satu rekap.
+    var dayIndex = {}; var dayOrder = [];
+    DASH.sesiList.forEach(function(s){
+      var key = s.tanggal || '-';
+      if (!dayIndex[key]){ dayIndex[key] = { tanggal: key, sesi: [], totalJual: 0, totalModal: 0 }; dayOrder.push(key); }
+      var d = dayIndex[key];
+      d.sesi.push(s);
+      d.totalJual += (s.totalPemasukan + s.totalPiutang);
+      d.totalModal += s.totalModal;
+    });
+    var days = dayOrder.map(function(k){ return dayIndex[k]; }).reverse();
+
+    var rrCounter = 0;
+    wrap.innerHTML = days.map(function(day){
+      var sesiHtml = day.sesi.slice().reverse().map(function(s){
+      var id = 'rr_'+(rrCounter++);
 
       // Kelompokkan per GroupID (1 checkout = 1 kelompok) biar kelihatan
       // penjualan per pelanggan, bukan per baris item. Item lama tanpa
@@ -2230,6 +2396,8 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         var groupTotal = items.reduce(function(a,x){ return a + x.total; }, 0);
         var idsCsv = items.map(function(x){ return x.id; }).join(',');
 
+        var groupKey = first.groupId || ('_single_' + first.id);
+
         if (items.length === 1){
           var it = first, unpaid = anyUnpaid;
           return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' +
@@ -2238,13 +2406,12 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
             '<div class="fval">'+rupiah(it.total)+'</div>' +
             '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
             '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+it.id+'\')">💬</button>' +
-            '<button class="edit-btn" onclick="openEditRiwayatTransaksi(\''+it.id+'\',\''+escapeHtml(it.item).replace(/'/g,"\\'")+'\','+it.qty+','+it.hargaSatuan+',\''+escapeHtml(it.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(it.statusBayar||'Lunas')+'\',\''+escapeHtml(it.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div></div>';
+            '<button class="edit-btn" title="Kelola transaksi ini" onclick="openGroupDetailRiwayat(\''+s.id+'\',\''+groupKey+'\')">✎</button></div></div>';
         }
 
         var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
         var itemListHtml = items.map(function(x){
-          return '<div class="fsub">'+x.qty+' x '+escapeHtml(x.item)+' — '+rupiah(x.total)+
-            '<button class="edit-btn" style="padding:1px 5px;font-size:12px;" onclick="openEditRiwayatTransaksi(\''+x.id+'\',\''+escapeHtml(x.item).replace(/'/g,"\\'")+'\','+x.qty+','+x.hargaSatuan+',\''+escapeHtml(x.kasir||'').replace(/'/g,"\\'")+'\',\''+escapeHtml(x.statusBayar||'Lunas')+'\',\''+escapeHtml(x.namaPelanggan||'').replace(/'/g,"\\'")+'\')">✎</button></div>';
+          return '<div class="fsub">'+x.qty+' x '+escapeHtml(x.item)+' — '+rupiah(x.total)+'</div>';
         }).join('');
         return '<div class="feed-item pemasukan group-multi" style="align-items:flex-start;"><div style="flex:1;">' +
           '<div class="fname"><span class="ficon">🧾</span>'+escapeHtml(namaPelanggan)+' · '+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div>' +
@@ -2254,9 +2421,10 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           '<div class="row-actions" style="flex-direction:column;align-items:flex-end;gap:6px;">' +
           (anyUnpaid ? '<button class="btn-lunas" onclick="tandaiSemuaLunas(\''+idsCsv+'\',this)">Semua Lunas</button>' : '') +
           '<div class="fval">'+rupiah(groupTotal)+'</div>' +
-          '<div style="display:flex;gap:2px;">' +
+          '<div style="display:flex;gap:6px;">' +
           '<button class="edit-btn" title="Cetak struk gabungan" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+first.id+'\')">🖨️</button>' +
           '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+first.id+'\')">💬</button>' +
+          '<button class="edit-btn" title="Kelola transaksi grup ini" onclick="openGroupDetailRiwayat(\''+s.id+'\',\''+groupKey+'\')">✎</button>' +
           '</div></div></div>';
       }).join('') || '<div class="empty" style="padding:14px 0;">Belum ada penjualan.</div>';
 
@@ -2315,6 +2483,13 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
             '<div class="receipt-cat-panel" id="'+id+'_panel_laba">'+labaMenuRows+'</div>' +
           '</div>' +
         '</div><div class="receipt-zigzag"></div>';
+      }).join('');
+
+      return '<div class="day-summary">' +
+        '<div class="ds-date">📅 '+escapeHtml(day.tanggal)+'</div>' +
+        '<div class="ds-row jual"><span>Total Jualan</span><span class="num">'+rupiah(day.totalJual)+'</span></div>' +
+        '<div class="ds-row modal"><span>Total Modal / Belanja</span><span class="num">'+rupiah(day.totalModal)+'</span></div>' +
+        '</div>' + sesiHtml;
     }).join('');
   }
 
