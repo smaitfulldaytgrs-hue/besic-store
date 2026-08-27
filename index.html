@@ -30,7 +30,7 @@
     --text:#1B2B27; --muted:#66766F; --line:#E4DCC9; --radius:16px;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  html,body{margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
   body{background:var(--cream); color:var(--text); font-family:'Plus Jakarta Sans',sans-serif; -webkit-font-smoothing:antialiased; padding-bottom:100px;}
   .num{font-family:'IBM Plex Mono',monospace;}
   h1,h2,h3,.display{font-family:'Fraunces',serif;}
@@ -284,11 +284,12 @@
   .kal-nav-btn{background:var(--paper);border:1px solid var(--line);border-radius:12px;width:42px;height:42px;font-size:19px;font-weight:700;color:var(--ink);cursor:pointer;}
   .kal-nav-btn:active{background:#F0F4EE;}
   .kal-month-label{font-family:'Fraunces',serif;font-weight:600;font-size:16.5px;}
-  .kal-dow{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;}
-  .kal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+  .kal-dow{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;width:100%;}
+  .kal-dow span{min-width:0;}
+  .kal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;width:100%;}
   .kal-cell{
-    aspect-ratio:1;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    border-radius:12px;font-size:13.5px;font-weight:600;color:var(--text);
+    aspect-ratio:1;min-height:0;min-width:0;max-width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border-radius:12px;font-size:13.5px;font-weight:600;color:var(--text);overflow:hidden;
     background:var(--paper);border:1px solid var(--line);
   }
   .kal-cell.empty{background:transparent;border:none;}
@@ -2552,12 +2553,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var y = kalenderRef.getFullYear(), m = kalenderRef.getMonth();
     document.getElementById('kalMonthLabel').textContent = BULAN_ID[m] + ' ' + y;
 
-    // Petakan tanggal (yyyy-MM-dd, dari tanggalISO backend) -> ada
-    // transaksi atau tidak, biar grid tinggal cek per sel.
+    // Petakan tanggal (yyyy-MM-dd) -> ada transaksi atau tidak, biar
+    // grid tinggal cek per sel. PENTING: dipetakan dari tanggal ASLI
+    // tiap item (kapan transaksi/modal/pemasukan itu terjadi), BUKAN
+    // dari tanggal sesi dimulai — supaya sesi yang jalan lintas hari
+    // (mis. mulai sesi tgl 1, masih ada transaksi tgl 2) kelihatan
+    // benar di kedua tanggal, bukan numpuk di tanggal mulai sesi saja.
     var byDate = {};
     ((DASH && DASH.sesiList) || []).forEach(function(s){
-      if (!s.tanggalISO) return;
-      byDate[s.tanggalISO] = true;
+      s.itemsPemasukan.forEach(function(it){ if (it.tanggalISO) byDate[it.tanggalISO] = true; });
+      s.itemsModal.forEach(function(it){ if (it.tanggalISO) byDate[it.tanggalISO] = true; });
+      s.itemsPemasukanLain.forEach(function(it){ if (it.tanggalISO) byDate[it.tanggalISO] = true; });
     });
 
     var firstOfMonth = new Date(y, m, 1);
@@ -2578,12 +2584,79 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     document.getElementById('kalGrid').innerHTML = cells.join('');
   }
 
+  // Versi client dari resolveItem_/resolveQty_ di backend (gabungkan
+  // menu "kemasan porsi" ke menu dasarnya) — dipakai buat hitung ulang
+  // laba per menu KHUSUS potongan satu tanggal, pakai BOOT.daftarMenu
+  // yang sudah tersedia di frontend.
+  function resolveItemDasarKal_(namaItem){
+    var m = ((BOOT && BOOT.daftarMenu) || []).find(function(x){ return x.nama === namaItem && x.itemDasar; });
+    return m ? m.itemDasar : namaItem;
+  }
+  function resolveQtyDasarKal_(namaItem, qty){
+    var m = ((BOOT && BOOT.daftarMenu) || []).find(function(x){ return x.nama === namaItem && x.itemDasar; });
+    return m ? qty * m.isiPerPorsi : qty;
+  }
+  function buildMenuTerlarisUntukItemsKal_(itemsPemasukan, itemsModal){
+    var menuMap = {};
+    itemsPemasukan.forEach(function(it){
+      var namaDasar = resolveItemDasarKal_(it.item);
+      var qtyDasar = resolveQtyDasarKal_(it.item, it.qty);
+      if (!menuMap[namaDasar]) menuMap[namaDasar] = { item: namaDasar, qty: 0, total: 0 };
+      menuMap[namaDasar].qty += qtyDasar;
+      menuMap[namaDasar].total += it.total;
+    });
+    var modalPerMenu = {};
+    itemsModal.forEach(function(it){
+      var arr = (it.menuTerkait || []).map(resolveItemDasarKal_).filter(function(n, i, a){ return a.indexOf(n) === i; });
+      if (arr.length){
+        var bagian = it.jumlah / arr.length;
+        arr.forEach(function(n){ modalPerMenu[n] = (modalPerMenu[n] || 0) + bagian; });
+      }
+    });
+    Object.keys(modalPerMenu).forEach(function(nama){ if (!menuMap[nama]) menuMap[nama] = { item: nama, qty: 0, total: 0 }; });
+    return Object.keys(menuMap).map(function(k){
+      var m = menuMap[k], modal = modalPerMenu[k] || 0, laba = m.total - modal;
+      return { item: m.item, qty: m.qty, total: m.total, modal: modal, laba: laba, margin: m.total ? laba / m.total : 0 };
+    }).sort(function(a, b){ return b.laba - a.laba; });
+  }
+
+  // Bangun kartu struk KHUSUS satu tanggal: ambil tiap sesi, saring
+  // item-nya (jualan/modal/pemasukan lain) yang tanggal ASLI-nya
+  // (tanggalISO per item, dari backend) sama dengan tanggal yang
+  // dipencet di kalender — bukan tanggal mulai sesi. Kalau satu sesi
+  // punya aktivitas di beberapa tanggal (mis. sesi jalan lintas hari),
+  // tiap tanggal otomatis kepisah jadi kartu sendiri berisi cuma
+  // aktivitas hari itu, total & laba dihitung ulang cuma dari potongan
+  // itu — tetap pakai UI kartu struk yang sama seperti menu Riwayat.
   function bukaDetailKalender(dateISO){
-    var sesiHari = ((DASH && DASH.sesiList) || []).filter(function(s){ return s.tanggalISO === dateISO; });
+    var kartuHari = [];
+    ((DASH && DASH.sesiList) || []).forEach(function(s){
+      var iP = s.itemsPemasukan.filter(function(it){ return it.tanggalISO === dateISO; });
+      var iM = s.itemsModal.filter(function(it){ return it.tanggalISO === dateISO; });
+      var iL = s.itemsPemasukanLain.filter(function(it){ return it.tanggalISO === dateISO; });
+      if (!iP.length && !iM.length && !iL.length) return;
+
+      var totalPemasukan = 0, totalPiutang = 0;
+      iP.forEach(function(it){
+        if (it.statusBayar === 'Belum Bayar') totalPiutang += it.total; else totalPemasukan += it.total;
+      });
+      var totalModal = iM.reduce(function(a, x){ return a + x.jumlah; }, 0);
+      var totalPemasukanLain = iL.reduce(function(a, x){ return a + x.jumlah; }, 0);
+      var laba = totalPemasukan - totalModal;
+
+      kartuHari.push({
+        id: s.id, nama: s.nama, tanggal: formatTanggalIndo_(dateISO), status: s.status,
+        totalPemasukan: totalPemasukan, totalPiutang: totalPiutang,
+        totalModal: totalModal, totalPemasukanLain: totalPemasukanLain,
+        laba: laba, margin: totalPemasukan ? laba / totalPemasukan : 0,
+        itemsPemasukan: iP, itemsModal: iM, itemsPemasukanLain: iL,
+        menuTerlaris: buildMenuTerlarisUntukItemsKal_(iP, iM)
+      });
+    });
     document.getElementById('kalenderDayTitle').textContent = formatTanggalIndo_(dateISO);
     var wrap = document.getElementById('kalenderDayList');
-    wrap.innerHTML = sesiHari.length ?
-      sesiHari.map(function(s, idx){ return buildSesiReceiptHtml(s, 'cd_'+idx); }).join('') :
+    wrap.innerHTML = kartuHari.length ?
+      kartuHari.map(function(k, idx){ return buildSesiReceiptHtml(k, 'cd_'+idx); }).join('') :
       '<div class="empty">Belum ada transaksi di tanggal ini.</div>';
     document.getElementById('kalenderDayModal').classList.add('show');
   }
