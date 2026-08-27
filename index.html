@@ -278,17 +278,26 @@
   .receipt-total-row{display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;padding:7px 2px 2px;color:var(--ink);}
   .receipt-total-row .rt-piutang{font-weight:500;font-size:11px;color:var(--rust);display:block;text-align:right;margin-top:1px;}
 
-  /* ---------- REKAP PER HARI (di atas kartu Riwayat) ---------- */
-  .day-summary{
-    background:linear-gradient(160deg, var(--ink) 0%, var(--ink-2) 100%); color:var(--cream);
-    border-radius:14px; padding:12px 15px; margin:18px 0 8px;
+
+  /* ---------- KALENDER (menu baru) ---------- */
+  .kal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .kal-nav-btn{background:var(--paper);border:1px solid var(--line);border-radius:12px;width:42px;height:42px;font-size:19px;font-weight:700;color:var(--ink);cursor:pointer;}
+  .kal-nav-btn:active{background:#F0F4EE;}
+  .kal-month-label{font-family:'Fraunces',serif;font-weight:600;font-size:16.5px;}
+  .kal-dow{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  .kal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+  .kal-cell{
+    aspect-ratio:1;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border-radius:12px;font-size:13.5px;font-weight:600;color:var(--text);
+    background:var(--paper);border:1px solid var(--line);
   }
-  .day-summary:first-child{margin-top:0;}
-  .day-summary .ds-date{font-family:'Fraunces',serif;font-weight:600;font-size:14.5px;margin-bottom:8px;}
-  .day-summary .ds-row{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;color:rgba(251,246,236,.85);}
-  .day-summary .ds-row .num{font-weight:700;color:var(--cream);}
-  .day-summary .ds-row.jual .num{color:#F3D28C;}
-  .day-summary .ds-row.modal .num{color:#F0A79E;}
+  .kal-cell.empty{background:transparent;border:none;}
+  .kal-cell.has-data{cursor:pointer;border-color:var(--gold);background:#FFF8EA;color:#8A5A0A;}
+  .kal-cell.has-data:active{background:#FFF0CE;}
+  .kal-cell.today{box-shadow:inset 0 0 0 2px var(--ink-2);}
+  .kal-cell .kal-dot{width:5px;height:5px;border-radius:50%;background:var(--gold-deep);margin-top:3px;}
+  .kal-legend{display:flex;align-items:center;gap:6px;justify-content:center;font-size:11.5px;color:var(--muted);margin-top:14px;}
+  .kal-legend .kal-dot{width:6px;height:6px;border-radius:50%;background:var(--gold-deep);}
 
   /* ---------- MODAL KELOLA TRANSAKSI GRUP (gd = group detail) ---------- */
   .gd-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);}
@@ -467,6 +476,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   <button class="tab-btn" data-view="inventaris">Inventaris</button>
   <button class="tab-btn" data-view="kegiatan">Kegiatan</button>
   <button class="tab-btn" data-view="riwayat">Riwayat</button>
+  <button class="tab-btn" data-view="kalender">📅 Kalender</button>
 </nav>
 
 <main>
@@ -730,6 +740,21 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     </section>
   </div>
 
+  <!-- ================= KALENDER ================= -->
+  <div class="view" id="view-kalender">
+    <section class="block">
+      <p class="block-title">Kalender Penjualan</p>
+      <div class="kal-header">
+        <button type="button" class="kal-nav-btn" onclick="kalenderGeser(-1)">‹</button>
+        <div class="kal-month-label" id="kalMonthLabel">-</div>
+        <button type="button" class="kal-nav-btn" onclick="kalenderGeser(1)">›</button>
+      </div>
+      <div class="kal-dow"><span>Min</span><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span></div>
+      <div class="kal-grid" id="kalGrid"></div>
+      <div class="kal-legend"><span class="kal-dot"></span> Ada transaksi — pencet tanggalnya buat lihat detail</div>
+    </section>
+  </div>
+
 </main>
 
 <footer class="note">Semua input tersimpan otomatis ke spreadsheet · aman dari lupa tekan simpan</footer>
@@ -759,6 +784,14 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     <div id="editModalFields"></div>
     <button class="btn btn-gold btn-block" onclick="confirmEditEntry()">Simpan Perubahan</button>
     <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="closeModal('editModal')">Batal</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="kalenderDayModal">
+  <div class="modal-sheet" style="max-height:82vh;overflow-y:auto;">
+    <h3 id="kalenderDayTitle">Detail Tanggal</h3>
+    <div id="kalenderDayList"></div>
+    <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="closeModal('kalenderDayModal')">Tutup</button>
   </div>
 </div>
 
@@ -2003,6 +2036,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         renderLogList('inventarisList', dash.inventaris);
         renderLogList('kegiatanList', dash.kegiatan);
         renderRiwayat();
+        renderKalender();
         syncFeedFromServer();
         renderDashboardStats();
         renderCharts();
@@ -2357,26 +2391,18 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function renderRiwayat(){
     var wrap = document.getElementById('riwayatList');
     if (!DASH.sesiList.length){ wrap.innerHTML = '<div class="empty">Belum ada sesi jualan.</div>'; return; }
+    wrap.innerHTML = DASH.sesiList.slice().reverse().map(function(s, idx){
+      return buildSesiReceiptHtml(s, 'rr_'+idx);
+    }).join('');
+  }
 
-    // Kelompokkan sesi per tanggal (s.tanggal, mis. "28 Aug 2026") biar
-    // bisa ditampilkan rekap Total Jualan & Total Modal/Belanja per hari
-    // di atas daftar sesi hari itu — beberapa sesi di tanggal sama tetap
-    // digabung jadi satu rekap.
-    var dayIndex = {}; var dayOrder = [];
-    DASH.sesiList.forEach(function(s){
-      var key = s.tanggal || '-';
-      if (!dayIndex[key]){ dayIndex[key] = { tanggal: key, sesi: [], totalJual: 0, totalModal: 0 }; dayOrder.push(key); }
-      var d = dayIndex[key];
-      d.sesi.push(s);
-      d.totalJual += (s.totalPemasukan + s.totalPiutang);
-      d.totalModal += s.totalModal;
-    });
-    var days = dayOrder.map(function(k){ return dayIndex[k]; }).reverse();
-
-    var rrCounter = 0;
-    wrap.innerHTML = days.map(function(day){
-      var sesiHtml = day.sesi.slice().reverse().map(function(s){
-      var id = 'rr_'+(rrCounter++);
+  // Bangun 1 kartu struk digital (Riwayat) buat 1 sesi. Dipakai di
+  // menu Riwayat (semua sesi) maupun modal detail tanggal di menu
+  // Kalender (sesi pada 1 hari saja) — idPrefix WAJIB unik per
+  // pemanggilan supaya id elemen (toggle/tab) tidak bentrok antar
+  // kartu yang render bersamaan di dua tempat berbeda.
+  function buildSesiReceiptHtml(s, idPrefix){
+      var id = idPrefix;
 
       // Kelompokkan per GroupID (1 checkout = 1 kelompok) biar kelihatan
       // penjualan per pelanggan, bukan per baris item. Item lama tanpa
@@ -2483,14 +2509,6 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
             '<div class="receipt-cat-panel" id="'+id+'_panel_laba">'+labaMenuRows+'</div>' +
           '</div>' +
         '</div><div class="receipt-zigzag"></div>';
-      }).join('');
-
-      return '<div class="day-summary">' +
-        '<div class="ds-date">📅 '+escapeHtml(day.tanggal)+'</div>' +
-        '<div class="ds-row jual"><span>Total Jualan</span><span class="num">'+rupiah(day.totalJual)+'</span></div>' +
-        '<div class="ds-row modal"><span>Total Modal / Belanja</span><span class="num">'+rupiah(day.totalModal)+'</span></div>' +
-        '</div>' + sesiHtml;
-    }).join('');
   }
 
   function switchReceiptTab(id, cat){
@@ -2507,6 +2525,67 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var label = document.getElementById(id+'_label');
     var open = el.classList.toggle('open');
     label.textContent = open ? 'Sembunyikan ▴' : 'Lihat detail ▾';
+  }
+
+  // ============================================================
+  // KALENDER — menu baru: grid bulan berjalan, tanggal yang punya
+  // transaksi ditandai titik & bisa dipencet buat lihat detail sesi
+  // hari itu saja (tampilannya sama seperti kartu struk di Riwayat,
+  // lewat buildSesiReceiptHtml yang sama, cuma dipisah per tanggal).
+  // ============================================================
+  var kalenderRef = new Date(); // bulan yang lagi ditampilkan di grid
+  var BULAN_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+  function pad2_(n){ return n < 10 ? '0'+n : ''+n; }
+  function formatDateISO_(dt){ return dt.getFullYear()+'-'+pad2_(dt.getMonth()+1)+'-'+pad2_(dt.getDate()); }
+  function formatTanggalIndo_(iso){
+    var p = iso.split('-');
+    return (Number(p[2]))+' '+BULAN_ID[Number(p[1])-1]+' '+p[0];
+  }
+
+  function kalenderGeser(delta){
+    kalenderRef.setMonth(kalenderRef.getMonth() + delta);
+    renderKalender();
+  }
+
+  function renderKalender(){
+    var y = kalenderRef.getFullYear(), m = kalenderRef.getMonth();
+    document.getElementById('kalMonthLabel').textContent = BULAN_ID[m] + ' ' + y;
+
+    // Petakan tanggal (yyyy-MM-dd, dari tanggalISO backend) -> ada
+    // transaksi atau tidak, biar grid tinggal cek per sel.
+    var byDate = {};
+    ((DASH && DASH.sesiList) || []).forEach(function(s){
+      if (!s.tanggalISO) return;
+      byDate[s.tanggalISO] = true;
+    });
+
+    var firstOfMonth = new Date(y, m, 1);
+    var startWeekday = firstOfMonth.getDay(); // 0 = Minggu
+    var daysInMonth = new Date(y, m + 1, 0).getDate();
+    var todayKey = formatDateISO_(new Date());
+
+    var cells = [];
+    for (var i = 0; i < startWeekday; i++) cells.push('<div class="kal-cell empty"></div>');
+    for (var d = 1; d <= daysInMonth; d++){
+      var key = y+'-'+pad2_(m+1)+'-'+pad2_(d);
+      var hasData = !!byDate[key];
+      var isToday = key === todayKey;
+      var cls = 'kal-cell'+(hasData ? ' has-data' : '')+(isToday ? ' today' : '');
+      var onclick = hasData ? ' onclick="bukaDetailKalender(\''+key+'\')"' : '';
+      cells.push('<div class="'+cls+'"'+onclick+'>'+d+(hasData ? '<span class="kal-dot"></span>' : '')+'</div>');
+    }
+    document.getElementById('kalGrid').innerHTML = cells.join('');
+  }
+
+  function bukaDetailKalender(dateISO){
+    var sesiHari = ((DASH && DASH.sesiList) || []).filter(function(s){ return s.tanggalISO === dateISO; });
+    document.getElementById('kalenderDayTitle').textContent = formatTanggalIndo_(dateISO);
+    var wrap = document.getElementById('kalenderDayList');
+    wrap.innerHTML = sesiHari.length ?
+      sesiHari.map(function(s, idx){ return buildSesiReceiptHtml(s, 'cd_'+idx); }).join('') :
+      '<div class="empty">Belum ada transaksi di tanggal ini.</div>';
+    document.getElementById('kalenderDayModal').classList.add('show');
   }
 
   // ============================================================
@@ -3018,6 +3097,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   attachRupiahInput('setSisaTahunLalu');
   attachRupiahInput('mnHarga');
   wireDraftAutosave();
+  renderKalender();
   updateSyncStatus();
   loadBootstrap();
 
