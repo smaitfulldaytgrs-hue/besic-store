@@ -127,6 +127,7 @@
     background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--line);
     border-radius:12px;padding:10px 13px;margin-bottom:7px;
   }
+  .feed-item > div:first-child{min-width:0;flex:1 1 auto;}
   .feed-item .ficon{font-size:14px;margin-right:5px;}
   .feed-item .fname{font-weight:700;font-size:13.5px;}
   .feed-item .fsub{font-size:11px;color:var(--muted);margin-top:1px;}
@@ -162,7 +163,7 @@
   .edit-btn{background:none;border:1px solid var(--line);color:var(--muted);font-size:16px;line-height:1;padding:9px 12px;min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:11px;transition:background .15s ease,color .15s ease;}
   .edit-btn:hover, .edit-btn:active{background:#F0F4EE;color:var(--ink-2);}
   .edit-btn.text{width:auto;font-size:13px;font-weight:700;gap:6px;padding:9px 14px;}
-  .row-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+  .row-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end;}
 
   /* ---------- INPUT JUALAN — grid menu & keranjang ---------- */
   .field-hint{font-size:12px;color:var(--muted);margin:-6px 0 12px;}
@@ -299,6 +300,11 @@
   .kal-cell .kal-dot{width:5px;height:5px;border-radius:50%;background:var(--gold-deep);margin-top:3px;}
   .kal-legend{display:flex;align-items:center;gap:6px;justify-content:center;font-size:11.5px;color:var(--muted);margin-top:14px;}
   .kal-legend .kal-dot{width:6px;height:6px;border-radius:50%;background:var(--gold-deep);}
+  .kal-day-sheet{display:flex;flex-direction:column;max-height:82vh;}
+  .kal-day-scroll{overflow-y:auto;flex:1 1 auto;min-height:0;}
+  .kal-day-footer{flex:0 0 auto;border-top:1px solid var(--line);margin-top:14px;padding-top:14px;}
+  .kal-day-total{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:14px;margin-bottom:10px;color:var(--ink);}
+  .kal-day-total .num{font-family:'IBM Plex Mono',monospace;}
 
   /* ---------- MODAL KELOLA TRANSAKSI GRUP (gd = group detail) ---------- */
   .gd-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);}
@@ -789,10 +795,15 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
 </div>
 
 <div class="modal-overlay" id="kalenderDayModal">
-  <div class="modal-sheet" style="max-height:82vh;overflow-y:auto;">
-    <h3 id="kalenderDayTitle">Detail Tanggal</h3>
-    <div id="kalenderDayList"></div>
-    <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="closeModal('kalenderDayModal')">Tutup</button>
+  <div class="modal-sheet kal-day-sheet">
+    <div class="kal-day-scroll">
+      <h3 id="kalenderDayTitle">Detail Tanggal</h3>
+      <div id="kalenderDayList"></div>
+    </div>
+    <div class="kal-day-footer">
+      <div class="kal-day-total"><span>Total Laba Hari Ini</span><span class="num" id="kalenderDayTotalLaba">Rp 0</span></div>
+      <button class="btn btn-ghost btn-block" onclick="closeModal('kalenderDayModal')">Tutup</button>
+    </div>
   </div>
 </div>
 
@@ -2427,13 +2438,21 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
 
         if (items.length === 1){
           var it = first, unpaid = anyUnpaid;
-          return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' +
-            '<div class="row-actions">' +
-            (unpaid ? '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\',this)">Lunas</button>' : '') +
-            '<div class="fval">'+rupiah(it.total)+'</div>' +
-            '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
+          var iconBtnsJual = '<button class="edit-btn" title="Cetak ulang struk" onclick="cetakStrukDariRiwayat(\''+s.id+'\',\''+it.id+'\')">🖨️</button>' +
             '<button class="edit-btn" title="Kirim struk via WhatsApp" onclick="openWaModalDariRiwayat(\''+s.id+'\',\''+it.id+'\')">💬</button>' +
-            '<button class="edit-btn" title="Kelola transaksi ini" onclick="openGroupDetailRiwayat(\''+s.id+'\',\''+groupKey+'\')">✎</button></div></div>';
+            '<button class="edit-btn" title="Kelola transaksi ini" onclick="openGroupDetailRiwayat(\''+s.id+'\',\''+groupKey+'\')">✎</button>';
+          var actionsJual = unpaid ?
+            // Belum lunas: tombol "Lunas" naik sendiri ke baris atas, fval +
+            // 3 ikon dikumpulkan di baris bawah — kalau digabung satu baris
+            // (Lunas+fval+3 ikon) kepanjangan & dorong tombol paling kanan
+            // (edit ✎) sampai keluar kotak / gak ketekan.
+            '<div class="row-actions" style="flex-direction:column;align-items:flex-end;gap:6px;">' +
+              '<button class="btn-lunas" onclick="tandaiLunasCepat(\''+it.id+'\',this)">Lunas</button>' +
+              '<div class="fval">'+rupiah(it.total)+'</div>' +
+              '<div style="display:flex;gap:6px;">'+iconBtnsJual+'</div>' +
+            '</div>' :
+            '<div class="row-actions"><div class="fval">'+rupiah(it.total)+'</div>'+iconBtnsJual+'</div>';
+          return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' + actionsJual + '</div>';
         }
 
         var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
@@ -2658,6 +2677,8 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     wrap.innerHTML = kartuHari.length ?
       kartuHari.map(function(k, idx){ return buildSesiReceiptHtml(k, 'cd_'+idx); }).join('') :
       '<div class="empty">Belum ada transaksi di tanggal ini.</div>';
+    var totalLabaHari = kartuHari.reduce(function(a, k){ return a + k.laba; }, 0);
+    document.getElementById('kalenderDayTotalLaba').textContent = rupiah(totalLabaHari);
     document.getElementById('kalenderDayModal').classList.add('show');
   }
 
