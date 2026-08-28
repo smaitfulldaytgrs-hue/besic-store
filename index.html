@@ -359,6 +359,13 @@
     align-items:flex-end; justify-content:center;
   }
   .modal-overlay.show{display:flex;}
+  /* editModal dipakai sebagai dialog "lapis kedua" — bisa dibuka dari
+     dalam modal Kalender (kalenderDayModal) atau Detail Grup
+     (groupDetailModal) yang sedang terbuka. Naikkan z-index-nya biar
+     selalu tampil DI DEPAN modal manapun yang sedang aktif, bukan
+     ketimpa di belakang (sebelumnya baru kelihatan setelah modal di
+     depannya ditutup). */
+  #editModal{z-index:210;}
   .modal-sheet{
     background:var(--paper);width:100%;max-width:480px;border-radius:20px 20px 0 0;padding:20px 18px 26px;
   }
@@ -674,7 +681,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           <div class="field"><label>Nama Pengisi</label><input type="text" id="mdPengisi" placeholder="Nama kamu"></div>
         </div>
         <div class="draft-note" id="mdDraftNote">✎ Draf tersimpan otomatis di HP ini</div>
-        <button class="btn btn-primary btn-block" onclick="submitModal()">+ Tambah Modal</button>
+        <button class="btn btn-primary btn-block" id="modalSubmitBtn" onclick="submitModal()">+ Tambah Modal</button>
       </div>
 
       <div class="form-card">
@@ -687,7 +694,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           <div class="field"><label>Nama Pencatat</label><input type="text" id="plPengisi" placeholder="Nama kamu"></div>
         </div>
         <div class="draft-note" id="plDraftNote">✎ Draf tersimpan otomatis di HP ini</div>
-        <button class="btn btn-gold btn-block" onclick="submitPemasukanLain()">+ Tambah Pemasukan</button>
+        <button class="btn btn-gold btn-block" id="plSubmitBtn" onclick="submitPemasukanLain()">+ Tambah Pemasukan</button>
       </div>
     </section>
 
@@ -962,6 +969,23 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     if (lastSubmitAt[key] && (now - lastSubmitAt[key]) < 1200) return true;
     lastSubmitAt[key] = now;
     return false;
+  }
+
+  // Lapisan tambahan biar user gak nge-tap ulang tombolnya sendiri
+  // karena ragu apakah tekanan pertama sudah masuk (mis. gak lihat
+  // toast-nya, atau HP-nya lag) — tombol beneran didisable & teksnya
+  // diganti "Menyimpan..." sesaat, jadi jelas kelihatan sudah terekam,
+  // sekaligus fisik gak bisa dipencet lagi selama jeda itu.
+  function lockSubmitBtn_(btnId, textSaatKunci){
+    var btn = document.getElementById(btnId);
+    if (!btn) return;
+    var teksAsli = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = textSaatKunci || 'Menyimpan...';
+    setTimeout(function(){
+      btn.disabled = false;
+      btn.textContent = teksAsli;
+    }, 1200);
   }
 
   // ============================================================
@@ -1259,14 +1283,15 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       toast('Nama pelanggan wajib diisi kalau belum bayar (biar jelas nagih ke siapa).');
       return;
     }
+    lockSubmitBtn_('cartSubmitBtn', 'Menyimpan...');
 
     var groupId = uuid();
     cart.forEach(function(c){
       var clientId = uuid();
       var total = c.qty * c.harga;
       var payload = { sesiId: BOOT.sesiAktif.ID, item: c.nama, qty: c.qty, hargaSatuan: c.harga, kasir: kasir, statusBayar: statusBayar, namaPelanggan: pelanggan, clientId: clientId, groupId: groupId };
-      var badge = sudahBayar ? '' : ' · Belum Bayar';
-      addFeedOptimistic({ clientId: clientId, type:'pemasukan', title: c.nama, sub: c.qty+' x '+rupiah(c.harga)+' · '+(kasir||'-')+badge, value: rupiah(total), total: total, pending:true, statusBayar: statusBayar, groupId: groupId, namaPelanggan: pelanggan });
+      var pelangganSuffix = pelanggan ? ' · '+pelanggan : '';
+      addFeedOptimistic({ clientId: clientId, type:'pemasukan', title: c.nama, sub: c.qty+' x '+rupiah(c.harga)+' · '+(kasir||'-')+pelangganSuffix, value: rupiah(total), total: total, pending:true, statusBayar: statusBayar, groupId: groupId, namaPelanggan: pelanggan });
       pushOutbox({ clientId: clientId, type:'transaksi', payload: payload });
     });
 
@@ -1450,6 +1475,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var pengisi = document.getElementById('mdPengisi').value.trim();
     var menuTerkait = getMdMenuChecked();
     if (!item || jumlah <= 0){ toast('Isi nama bahan dan jumlah dulu ya.'); return; }
+    lockSubmitBtn_('modalSubmitBtn', 'Menyimpan...');
 
     var clientId = uuid();
     var payload = { sesiId: BOOT.sesiAktif.ID, item: item, jumlah: jumlah, keterangan: ket, pengisi: pengisi, menuTerkait: menuTerkait, clientId: clientId };
@@ -1472,6 +1498,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var ket = document.getElementById('plKeterangan').value.trim();
     var pengisi = document.getElementById('plPengisi').value.trim();
     if (!item || jumlah <= 0){ toast('Isi sumber pemasukan dan jumlah dulu ya.'); return; }
+    lockSubmitBtn_('plSubmitBtn', 'Menyimpan...');
 
     var clientId = uuid();
     var payload = { sesiId: BOOT.sesiAktif.ID, item: item, jumlah: jumlah, keterangan: ket, pengisi: pengisi, clientId: clientId };
@@ -1543,7 +1570,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var pendingIds = feedEntries.filter(function(e){ return e.pending; }).map(function(e){ return e.clientId; });
     var fromServer = [];
     sesi.itemsPemasukan.forEach(function(it){
-      var badge = (it.statusBayar === 'Belum Bayar') ? (' · '+(it.namaPelanggan||'-')) : '';
+      var badge = it.namaPelanggan ? (' · '+it.namaPelanggan) : '';
       fromServer.push({ clientId: it.id, type:'pemasukan', title: it.item, sub: it.qty+' x '+rupiah(it.hargaSatuan)+' · '+(it.kasir||'-')+' · '+it.waktu+badge, value: rupiah(it.total), total: it.total, pending:false, statusBayar: it.statusBayar, groupId: it.groupId || '', namaPelanggan: it.namaPelanggan || '' });
     });
     sesi.itemsModal.forEach(function(it){
@@ -1622,14 +1649,14 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       }
 
       var first = items[0];
-      var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
+      var namaPelanggan = first.namaPelanggan || '';
       var groupTotal = items.reduce(function(a,x){ return a + (x.total||0); }, 0);
       var itemListHtml = items.map(function(x){
         var pendingTag = x.pending ? ' <span class="pending-badge">mengirim…</span>' : '';
         return '<div class="fsub">'+escapeHtml(x.title)+' — '+escapeHtml(x.sub.split(' · ')[0])+' — '+rupiah(x.total||0)+pendingTag+'</div>';
       }).join('');
       return '<div class="feed-item pemasukan group-multi" style="align-items:flex-start;"><div style="flex:1;">' +
-        '<div class="fname">'+escapeHtml(namaPelanggan)+' · '+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+(anyPending ? '<span class="pending-badge">mengirim…</span>' : '')+'</div>' +
+        '<div class="fname">'+(namaPelanggan ? escapeHtml(namaPelanggan)+' · ' : '')+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+(anyPending ? '<span class="pending-badge">mengirim…</span>' : '')+'</div>' +
         itemListHtml +
         '</div>' +
         '<div class="row-actions" style="flex-direction:column;align-items:flex-end;gap:6px;">' +
@@ -2302,7 +2329,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var total = items.reduce(function(a,x){ return a + (x.total||0); }, 0);
     var isRealGroup = items.length > 1;
 
-    document.getElementById('groupDetailTitle').textContent = isRealGroup ? ('Transaksi · ' + (namaPelanggan || 'Pelanggan (tanpa nama)')) : 'Transaksi';
+    document.getElementById('groupDetailTitle').textContent = (isRealGroup && namaPelanggan) ? ('Transaksi · ' + namaPelanggan) : 'Transaksi';
     document.getElementById('groupDetailSub').textContent = items.length + ' item · Total ' + rupiah(total);
 
     var grupActionEl = document.getElementById('groupDetailGrupAction');
@@ -2452,15 +2479,15 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
               '<div style="display:flex;gap:6px;">'+iconBtnsJual+'</div>' +
             '</div>' :
             '<div class="row-actions"><div class="fval">'+rupiah(it.total)+'</div>'+iconBtnsJual+'</div>';
-          return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(unpaid ? ' · '+escapeHtml(it.namaPelanggan||'-') : '')+'</div></div>' + actionsJual + '</div>';
+          return '<div class="feed-item pemasukan"><div><div class="fname"><span class="ficon">🧾</span>'+escapeHtml(it.item)+(unpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div><div class="fsub">'+it.qty+' x '+rupiah(it.hargaSatuan)+' · '+it.waktu+(it.namaPelanggan ? ' · '+escapeHtml(it.namaPelanggan) : '')+'</div></div>' + actionsJual + '</div>';
         }
 
-        var namaPelanggan = first.namaPelanggan || 'Pelanggan (tanpa nama)';
+        var namaPelanggan = first.namaPelanggan || '';
         var itemListHtml = items.map(function(x){
           return '<div class="fsub">'+x.qty+' x '+escapeHtml(x.item)+' — '+rupiah(x.total)+'</div>';
         }).join('');
         return '<div class="feed-item pemasukan group-multi" style="align-items:flex-start;"><div style="flex:1;">' +
-          '<div class="fname"><span class="ficon">🧾</span>'+escapeHtml(namaPelanggan)+' · '+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div>' +
+          '<div class="fname"><span class="ficon">🧾</span>'+(namaPelanggan ? escapeHtml(namaPelanggan)+' · ' : '')+items.length+' item'+(anyUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '')+'</div>' +
           itemListHtml +
           '<div class="fsub" style="margin-top:2px;color:var(--muted);">'+first.waktu+' · '+escapeHtml(first.kasir||'-')+'</div>' +
           '</div>' +
