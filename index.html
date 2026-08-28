@@ -1606,7 +1606,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         return '<div class="feed-item '+e.type+'">' +
           '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') +'</div>' +
           '<div class="fsub">'+ escapeHtml(e.sub) +'</div></div>' +
-          '<div style="display:flex;align-items:center;">' +
+          '<div style="display:flex;align-items:center;flex:0 0 auto;gap:8px;">' +
           '<div class="fval">-'+ e.value.replace('Rp ','') +'</div>' + actions +
           '</div></div>';
       }).join('');
@@ -1643,7 +1643,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         return '<div class="feed-item pemasukan">' +
           '<div><div class="fname">'+ escapeHtml(e.title) + (e.pending ? '<span class="pending-badge">mengirim…</span>' : '') + (isUnpaid ? '<span class="badge-unpaid">Belum Bayar</span>' : '') +'</div>' +
           '<div class="fsub">'+ escapeHtml(e.sub) +'</div></div>' +
-          '<div style="display:flex;align-items:center;">' +
+          '<div style="display:flex;align-items:center;flex:0 0 auto;gap:8px;">' +
           '<div class="fval">+'+ e.value.replace('Rp ','') +'</div>' + actions +
           '</div></div>';
       }
@@ -2349,7 +2349,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         '<button class="del-btn" title="Hapus item" onclick="deleteGroupItem(\''+id+'\',this)">×</button>' +
         '</div>';
       return '<div class="gd-item"><div class="gd-info"><div class="gd-name">'+escapeHtml(nameLabel)+'</div><div class="gd-sub">'+escapeHtml(subLabel)+'</div></div>' +
-        '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">' +
         '<div class="gd-val">'+String(valLabel).replace('Rp ','+Rp ')+'</div>' + actions +
         '</div></div>';
     }).join('');
