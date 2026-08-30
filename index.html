@@ -636,6 +636,21 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           <label class="switch"><input type="checkbox" id="toggleRefresh30" onchange="onToggleRefresh30(this.checked)"><span class="slider"></span></label>
         </div>
       </div>
+      <div class="form-card" style="margin-top:10px;">
+        <p class="block-title" style="margin:0 0 8px;">Daftar Kasir</p>
+        <p class="hint" style="margin:0 0 8px;">Supaya nama kasir konsisten (gak ada "Budi" vs "budi") — dipakai jadi pilihan dropdown saat input jualan.</p>
+        <div class="field-row">
+          <div class="field"><input type="text" id="kasirNamaBaru" placeholder="Nama kasir..."></div>
+          <button type="button" class="btn btn-primary" onclick="tambahKasirBaru()">Tambah</button>
+        </div>
+        <div id="kasirManageList" style="margin-top:8px;"></div>
+      </div>
+      <div class="form-card" style="margin-top:10px;">
+        <p class="block-title" style="margin:0 0 8px;">PIN Aksi Sensitif</p>
+        <p class="hint" style="margin:0 0 8px;">Kalau diisi, HP wajib masukkan PIN ini dulu buat hapus data, tutup sesi, atau ubah pengaturan. Kosongkan lalu simpan buat matikan proteksi.</p>
+        <div class="field"><label>PIN Baru (angka, kosongkan = tidak berubah)</label><input type="password" inputmode="numeric" maxlength="8" id="setPinBaru" placeholder="mis. 1234"></div>
+        <button type="button" class="btn btn-primary btn-block" onclick="savePinSetting()">Simpan PIN</button>
+      </div>
     </section>
 
     <section class="block" id="subtabPengaturanStruk" style="display:none;">
@@ -733,7 +748,10 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           <div id="cartList"></div>
         </div>
 
-        <div class="field"><label>Nama Kasir</label><input type="text" id="txKasir" placeholder="Nama kamu"></div>
+        <div class="field"><label>Nama Kasir</label>
+          <select id="txKasir" onchange="onTxKasirChange(this.value)"></select>
+          <input type="text" id="txKasirBaru" placeholder="Nama kasir baru..." style="display:none;margin-top:6px;">
+        </div>
         <div class="field"><label>Nama Pelanggan <span style="font-weight:400;color:var(--muted);">(wajib kalau belum bayar)</span></label><input type="text" id="txPelanggan" placeholder="mis. Budi, Meja 3..."></div>
         <div class="toggle-row">
           <div><div class="tlabel">Sudah Dibayar?</div><div class="tsub" id="txBayarSub">Lunas — langsung masuk kas</div></div>
@@ -831,6 +849,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   <div class="view" id="view-riwayat">
     <section class="block">
       <p class="block-title">Riwayat Semua Sesi (struk digital)</p>
+      <div class="field" style="margin-bottom:10px;">
+        <input type="text" id="riwayatSearch" placeholder="Cari nama pelanggan, menu, atau tanggal (mis. 14 Agu)..." oninput="renderRiwayat()">
+      </div>
       <div id="riwayatList"></div>
     </section>
   </div>
@@ -904,6 +925,16 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     <div id="groupDetailGrupAction"></div>
     <div id="groupDetailList"></div>
     <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="closeModal('groupDetailModal')">Tutup</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pinModal">
+  <div class="modal-sheet">
+    <h3>🔒 Masukkan PIN</h3>
+    <p class="hint" style="margin:0 0 10px;">Aksi ini dilindungi PIN.</p>
+    <div class="field"><input type="password" inputmode="numeric" maxlength="8" id="pinModalInput" placeholder="PIN" onkeydown="if(event.key==='Enter')submitPinModal();"></div>
+    <button class="btn btn-gold btn-block" onclick="submitPinModal()">Konfirmasi</button>
+    <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="cancelPinModal()">Batal</button>
   </div>
 </div>
 
@@ -1379,7 +1410,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     if (isDuplicateSubmit('transaksi')) return;
     if (!requireSesiAktif()) return;
     if (!cart.length){ toast('Keranjang masih kosong, ketuk menu dulu ya.'); return; }
-    var kasir = document.getElementById('txKasir').value.trim();
+    var kasir = getTxKasirValue_();
+    if (!kasir){ toast('Pilih atau isi nama kasir dulu ya.'); return; }
+    simpanKasirBaruJikaPerlu_(kasir);
     var pelanggan = document.getElementById('txPelanggan').value.trim();
     var sudahBayar = document.getElementById('txSudahBayar').checked;
     var statusBayar = sudahBayar ? 'Lunas' : 'Belum Bayar';
@@ -1464,6 +1497,139 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     }).join('');
   }
 
+  // ============================================================
+  // DAFTAR KASIR — dropdown biar nama gak typo ("Budi" vs "budi").
+  // Disimpan di Pengaturan (key DaftarKasir, isinya JSON array).
+  // ============================================================
+  var KASIR_NEW_VALUE = '__kasir_baru__';
+
+  function renderKasirSelect(){
+    var sel = document.getElementById('txKasir');
+    if (!sel) return;
+    var daftar = (BOOT && BOOT.pengaturan && BOOT.pengaturan.daftarKasir) || [];
+    var lastKasir = localStorage.getItem('besic_last_kasir') || '';
+    sel.innerHTML = '<option value="" disabled>Pilih kasir...</option>' +
+      daftar.map(function(k){ return '<option value="'+escapeHtml(k)+'">'+escapeHtml(k)+'</option>'; }).join('') +
+      '<option value="'+KASIR_NEW_VALUE+'">+ Kasir baru...</option>';
+    if (lastKasir && daftar.indexOf(lastKasir) !== -1){ sel.value = lastKasir; }
+    else if (!daftar.length){ sel.value = KASIR_NEW_VALUE; onTxKasirChange(KASIR_NEW_VALUE); }
+    else { sel.selectedIndex = 0; }
+  }
+
+  function onTxKasirChange(val){
+    var inputBaru = document.getElementById('txKasirBaru');
+    if (val === KASIR_NEW_VALUE){ inputBaru.style.display = 'block'; inputBaru.focus(); }
+    else { inputBaru.style.display = 'none'; inputBaru.value = ''; }
+  }
+
+  function getTxKasirValue_(){
+    var sel = document.getElementById('txKasir');
+    if (sel.value === KASIR_NEW_VALUE) return document.getElementById('txKasirBaru').value.trim();
+    return (sel.value || '').trim();
+  }
+
+  // Kalau kasir ketik nama baru lewat "+ Kasir baru...", otomatis
+  // tambahkan ke daftar tersimpan supaya kali berikutnya tinggal pilih.
+  function simpanKasirBaruJikaPerlu_(nama){
+    localStorage.setItem('besic_last_kasir', nama);
+    var daftar = (BOOT && BOOT.pengaturan && BOOT.pengaturan.daftarKasir) || [];
+    if (daftar.indexOf(nama) !== -1) return;
+    daftar = daftar.concat([nama]);
+    BOOT.pengaturan.daftarKasir = daftar;
+    gasCall('simpanPengaturan', ['DaftarKasir', JSON.stringify(daftar)]).then(function(){
+      renderKasirSelect();
+      renderKasirManageList();
+      var sel = document.getElementById('txKasir');
+      if (sel) sel.value = nama;
+    }).catch(function(){}); // gagal simpan ke daftar gak masalah, transaksi tetap jalan
+  }
+
+  function renderKasirManageList(){
+    var wrap = document.getElementById('kasirManageList');
+    if (!wrap) return;
+    var daftar = (BOOT && BOOT.pengaturan && BOOT.pengaturan.daftarKasir) || [];
+    if (!daftar.length){ wrap.innerHTML = '<div class="empty">Belum ada kasir. Tambahkan di atas.</div>'; return; }
+    wrap.innerHTML = daftar.map(function(k){
+      return '<div class="log-item"><div class="lname">'+escapeHtml(k)+'</div>' +
+        '<button class="del-btn" onclick="hapusKasir(\''+escapeHtml(k).replace(/'/g,"\\'")+'\')">×</button></div>';
+    }).join('');
+  }
+
+  function tambahKasirBaru(){
+    var input = document.getElementById('kasirNamaBaru');
+    var nama = input.value.trim();
+    if (!nama){ toast('Isi nama kasir dulu ya.'); return; }
+    var daftar = (BOOT && BOOT.pengaturan && BOOT.pengaturan.daftarKasir) || [];
+    if (daftar.indexOf(nama) !== -1){ toast('Nama kasir itu sudah ada di daftar.'); return; }
+    daftar = daftar.concat([nama]);
+    gasCall('simpanPengaturan', ['DaftarKasir', JSON.stringify(daftar)]).then(function(){
+      BOOT.pengaturan.daftarKasir = daftar;
+      input.value = '';
+      renderKasirManageList();
+      renderKasirSelect();
+      toast('Kasir "'+nama+'" ditambahkan');
+    }).catch(function(err){ toast('Gagal menambah kasir: '+err.message); });
+  }
+
+  // ============================================================
+  // PIN AKSI SENSITIF — gerbang buat hapus data, tutup sesi, ubah
+  // pengaturan. PIN asli tidak pernah ada di frontend; verifikasi
+  // selalu tanya server (verifikasiPin), aman walau HP dipinjam.
+  // ============================================================
+  var pinPendingCallback = null;
+
+  function requirePin(onValid){
+    if (!BOOT || !BOOT.pengaturan || !BOOT.pengaturan.pinAktif){ onValid(); return; }
+    pinPendingCallback = onValid;
+    document.getElementById('pinModalInput').value = '';
+    document.getElementById('pinModal').classList.add('show');
+    setTimeout(function(){ document.getElementById('pinModalInput').focus(); }, 100);
+  }
+
+  function submitPinModal(){
+    var pin = document.getElementById('pinModalInput').value.trim();
+    if (!pin){ toast('Isi PIN dulu ya.'); return; }
+    gasCall('verifikasiPin', [pin]).then(function(res){
+      document.getElementById('pinModal').classList.remove('show');
+      if (res && res.valid){
+        var cb = pinPendingCallback; pinPendingCallback = null;
+        if (cb) cb();
+      } else {
+        toast('PIN salah.');
+      }
+    }).catch(function(err){ toast('Gagal cek PIN: ' + err.message); });
+  }
+
+  function cancelPinModal(){
+    document.getElementById('pinModal').classList.remove('show');
+    pinPendingCallback = null;
+  }
+
+  function savePinSetting(){
+    var pinBaru = document.getElementById('setPinBaru').value.trim();
+    if (!pinBaru && !BOOT.pengaturan.pinAktif){ toast('Isi PIN dulu ya.'); return; }
+    requirePin(function(){
+      gasCall('simpanPengaturan', ['PinAksi', pinBaru]).then(function(){
+        BOOT.pengaturan.pinAktif = !!pinBaru;
+        document.getElementById('setPinBaru').value = '';
+        toast(pinBaru ? 'PIN tersimpan.' : 'Proteksi PIN dimatikan.');
+      }).catch(function(err){ toast('Gagal simpan PIN: ' + err.message); });
+    });
+  }
+
+  function hapusKasir(nama){
+    requirePin(function(){
+      if (!confirm('Hapus kasir "'+nama+'" dari daftar?')) return;
+      var daftar = ((BOOT && BOOT.pengaturan && BOOT.pengaturan.daftarKasir) || []).filter(function(k){ return k !== nama; });
+      gasCall('simpanPengaturan', ['DaftarKasir', JSON.stringify(daftar)]).then(function(){
+        BOOT.pengaturan.daftarKasir = daftar;
+        renderKasirManageList();
+        renderKasirSelect();
+        toast('Kasir dihapus');
+      }).catch(function(err){ toast('Gagal hapus kasir: '+err.message); });
+    });
+  }
+
   function openEditMenuItem(id){
     var m = (BOOT.daftarMenu||[]).find(function(x){ return x.id === id; });
     if (!m) return;
@@ -1497,6 +1663,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
 
   function hapusMenuItem(id, btnEl){
     if (!confirm('Hapus menu ini dari daftar?')) return;
+    requirePin(function(){ hapusMenuItemLanjut_(id, btnEl); });
+  }
+  function hapusMenuItemLanjut_(id, btnEl){
     setBtnBusy_(btnEl, true);
     gasCall('hapusEntri', ['MENU', id]).then(function(){
       BOOT.daftarMenu = (BOOT.daftarMenu||[]).filter(function(m){ return m.id !== id; });
@@ -1558,6 +1727,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   }
   setInterval(flushOutbox, 8000);
   window.addEventListener('online', flushOutbox);
+
+  // Peringatan browser kalau tab/app ditutup padahal masih ada
+  // transaksi di outbox yang belum kekirim ke server — supaya data
+  // gak ketinggalan tanpa disadari.
+  window.addEventListener('beforeunload', function(e){
+    if (getOutbox().length > 0){
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    }
+  });
 
   // ============================================================
   // SUBMIT HANDLERS
@@ -1805,6 +1985,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
 
   function deleteFeedEntry(id, type, btnEl){
     if (!confirm('Hapus catatan ini?')) return;
+    requirePin(function(){ deleteFeedEntryLanjut_(id, type, btnEl); });
+  }
+  function deleteFeedEntryLanjut_(id, type, btnEl){
     setBtnBusy_(btnEl, true);
     var sheetKey = type === 'modal' ? 'MODAL' : (type === 'pemasukanLain' ? 'PEMASUKAN_LAIN' : 'TRANSAKSI');
     gasCall('hapusEntri', [sheetKey, id]).then(function(){
@@ -1838,6 +2021,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function tutupSesiSekarang(btnEl){
     if (!BOOT.sesiAktif) return;
     if (!confirm('Tutup sesi "'+BOOT.sesiAktif.Nama+'"? Kamu masih bisa lihat riwayatnya nanti.')) return;
+    requirePin(function(){ tutupSesiLanjut_(btnEl); });
+  }
+  function tutupSesiLanjut_(btnEl){
     var id = BOOT.sesiAktif.ID;
     setBtnBusy_(btnEl, true);
     gasCall('tutupSesi', [id]).then(function(){
@@ -2031,11 +2217,13 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function savePengaturan(){
     var modalAwal = parseRibuan(document.getElementById('setModalAwal').value);
     var sisa = parseRibuan(document.getElementById('setSisaTahunLalu').value);
-    gasCall('simpanPengaturan', ['ModalAwal', modalAwal]).then(function(){
-      toast('Pengaturan tersimpan');
-      loadDashboard();
-    }).catch(function(err){ toast('Gagal: '+err.message); });
-    gasCall('simpanPengaturan', ['SisaTahunLalu', sisa]).catch(function(){});
+    requirePin(function(){
+      gasCall('simpanPengaturan', ['ModalAwal', modalAwal]).then(function(){
+        toast('Pengaturan tersimpan');
+        loadDashboard();
+      }).catch(function(err){ toast('Gagal: '+err.message); });
+      gasCall('simpanPengaturan', ['SisaTahunLalu', sisa]).catch(function(){});
+    });
   }
 
   // ============================================================
@@ -2123,9 +2311,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
         document.getElementById('setGuruWa').value = boot.pengaturan.guruWaNomor || '';
         document.getElementById('setInfoRekening').value = boot.pengaturan.infoRekening || '';
         document.getElementById('setInfoGopay').value = boot.pengaturan.infoGopay || '';
-        var lastKasir = localStorage.getItem('besic_last_kasir');
+        renderKasirSelect();
+        renderKasirManageList();
         var lastPengisi = localStorage.getItem('besic_last_pengisi');
-        if (lastKasir) document.getElementById('txKasir').value = lastKasir;
         if (lastPengisi) document.getElementById('mdPengisi').value = lastPengisi;
         if (lastPengisi) document.getElementById('plPengisi').value = lastPengisi;
         restoreDrafts();
@@ -2165,6 +2353,12 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       renderMenuList();
       var dl = document.getElementById('masterBahanList');
       dl.innerHTML = (boot.masterBahan||[]).map(function(m){ return '<option value="'+escapeHtml(m)+'">'; }).join('');
+      // Jangan reset pilihan kasir yang sedang aktif diketik/dipilih —
+      // cuma refresh opsinya kalau daftar berubah dari perangkat lain.
+      var selKasirNow = document.getElementById('txKasir').value;
+      renderKasirSelect();
+      if (selKasirNow && selKasirNow !== KASIR_NEW_VALUE) document.getElementById('txKasir').value = selKasirNow;
+      renderKasirManageList();
     }).catch(function(){ /* diam saja, akan dicoba lagi di polling berikutnya */ });
   }
 
@@ -2493,6 +2687,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   // dan otomatis menampilkan sisa item grup (atau tertutup kalau habis).
   function deleteGroupItem(id, btnEl){
     if (!confirm('Hapus item ini dari transaksi?')) return;
+    requirePin(function(){ deleteGroupItemLanjut_(id, btnEl); });
+  }
+  function deleteGroupItemLanjut_(id, btnEl){
     setBtnBusy_(btnEl, true);
     gasCall('hapusEntri', ['TRANSAKSI', id]).then(function(){
       toast('Item dihapus');
@@ -2518,6 +2715,9 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function hapusLogEntry(sheetKey, id, elId, btnEl){
     var label = (sheetKey === 'INVENTARIS') ? 'inventaris' : 'kegiatan';
     if (!confirm('Hapus data '+label+' ini?')) return;
+    requirePin(function(){ hapusLogEntryLanjut_(sheetKey, id, elId, btnEl, label); });
+  }
+  function hapusLogEntryLanjut_(sheetKey, id, elId, btnEl, label){
     setBtnBusy_(btnEl, true);
     gasCall('hapusEntri', [sheetKey, id]).then(function(){
       if (elId === 'inventarisList' && DASH){
@@ -2534,9 +2734,29 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function renderRiwayat(){
     var wrap = document.getElementById('riwayatList');
     if (!DASH.sesiList.length){ wrap.innerHTML = '<div class="empty">Belum ada sesi jualan.</div>'; return; }
-    wrap.innerHTML = DASH.sesiList.slice().reverse().map(function(s, idx){
+    var qEl = document.getElementById('riwayatSearch');
+    var q = qEl ? qEl.value.trim().toLowerCase() : '';
+    var list = DASH.sesiList;
+    if (q){
+      list = list.filter(function(s){ return sesiCocokPencarian_(s, q); });
+    }
+    if (!list.length){ wrap.innerHTML = '<div class="empty">Tidak ada hasil untuk "'+escapeHtml(q)+'".</div>'; return; }
+    wrap.innerHTML = list.slice().reverse().map(function(s, idx){
       return buildSesiReceiptHtml(s, 'rr_'+idx);
     }).join('');
+  }
+
+  // Cocokkan 1 sesi terhadap kata kunci: nama sesi, tanggal, nama
+  // pelanggan, atau nama menu/item — biar gak perlu scroll manual
+  // nyari 1 transaksi lama di riwayat yang sudah panjang.
+  function sesiCocokPencarian_(s, q){
+    if ((s.nama||'').toLowerCase().indexOf(q) !== -1) return true;
+    if ((s.tanggal||'').toLowerCase().indexOf(q) !== -1) return true;
+    var listItem = (s.itemsPemasukan||[]).concat(s.itemsModal||[]).concat(s.itemsPemasukanLain||[]);
+    return listItem.some(function(it){
+      return (it.item||'').toLowerCase().indexOf(q) !== -1 ||
+             (it.namaPelanggan||'').toLowerCase().indexOf(q) !== -1;
+    });
   }
 
   // Bangun 1 kartu struk digital (Riwayat) buat 1 sesi. Dipakai di
@@ -2957,13 +3177,15 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       ['InfoRekening', document.getElementById('setInfoRekening').value.trim()],
       ['InfoGopay', document.getElementById('setInfoGopay').value.trim()]
     ];
-    pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
-    if (BOOT && BOOT.pengaturan){
-      BOOT.pengaturan.guruWaNomor = pairs[0][1];
-      BOOT.pengaturan.infoRekening = pairs[1][1];
-      BOOT.pengaturan.infoGopay = pairs[2][1];
-    }
-    toast('Kontak & info pembayaran tersimpan.');
+    requirePin(function(){
+      pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
+      if (BOOT && BOOT.pengaturan){
+        BOOT.pengaturan.guruWaNomor = pairs[0][1];
+        BOOT.pengaturan.infoRekening = pairs[1][1];
+        BOOT.pengaturan.infoGopay = pairs[2][1];
+      }
+      toast('Kontak & info pembayaran tersimpan.');
+    });
   }
 
   function onStrukMetodeChange(){
@@ -2983,15 +3205,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       ['StrukBtServiceUUID', document.getElementById('setStrukBtService').value.trim()],
       ['StrukBtCharUUID', document.getElementById('setStrukBtChar').value.trim()]
     ];
-    pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
-    if (BOOT && BOOT.pengaturan){
-      BOOT.pengaturan.strukSekolah = pairs[0][1]; BOOT.pengaturan.strukProgram = pairs[1][1];
-      BOOT.pengaturan.strukAlamat = pairs[2][1]; BOOT.pengaturan.strukKontak = pairs[3][1];
-      BOOT.pengaturan.strukFooter = pairs[4][1]; BOOT.pengaturan.strukLebarKertas = pairs[5][1];
-      BOOT.pengaturan.strukMetode = pairs[6][1]; BOOT.pengaturan.strukBtServiceUUID = pairs[7][1];
-      BOOT.pengaturan.strukBtCharUUID = pairs[8][1];
-    }
-    toast('Identitas struk tersimpan.');
+    requirePin(function(){
+      pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
+      if (BOOT && BOOT.pengaturan){
+        BOOT.pengaturan.strukSekolah = pairs[0][1]; BOOT.pengaturan.strukProgram = pairs[1][1];
+        BOOT.pengaturan.strukAlamat = pairs[2][1]; BOOT.pengaturan.strukKontak = pairs[3][1];
+        BOOT.pengaturan.strukFooter = pairs[4][1]; BOOT.pengaturan.strukLebarKertas = pairs[5][1];
+        BOOT.pengaturan.strukMetode = pairs[6][1]; BOOT.pengaturan.strukBtServiceUUID = pairs[7][1];
+        BOOT.pengaturan.strukBtCharUUID = pairs[8][1];
+      }
+      toast('Identitas struk tersimpan.');
+    });
   }
 
   // Bikin baris teks struk dari daftar item + info transaksi.
@@ -3273,13 +3497,13 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     var txBody = [];
     sesiCakupan.forEach(function(s){
       s.itemsPemasukan.forEach(function(it){
-        txBody.push([s.nama, it.waktu, it.item, it.qty, rupiah(it.hargaSatuan), rupiah(it.total), it.statusBayar]);
+        txBody.push([s.nama, it.waktu, it.item, it.qty, rupiah(it.hargaSatuan), rupiah(it.total), it.namaPelanggan || '-', it.statusBayar]);
       });
     });
     if (txBody.length){
       if (y > 700){ doc.addPage(); y = 40; }
       doc.setFontSize(11); doc.text('Transaksi Penjualan', 40, y); y += 8;
-      doc.autoTable({ startY: y, head: [['Sesi','Waktu','Item','Qty','Harga','Total','Status']], body: txBody, theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [22,48,43] } });
+      doc.autoTable({ startY: y, head: [['Sesi','Waktu','Item','Qty','Harga','Total','Pelanggan','Status']], body: txBody, theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [22,48,43] } });
       y = doc.lastAutoTable.finalY + 20;
     }
 
