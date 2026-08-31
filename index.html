@@ -933,8 +933,8 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
     <h3>🔒 Masukkan PIN</h3>
     <p class="hint" style="margin:0 0 10px;">Aksi ini dilindungi PIN.</p>
     <div class="field"><input type="password" inputmode="numeric" maxlength="8" id="pinModalInput" placeholder="PIN" onkeydown="if(event.key==='Enter')submitPinModal();"></div>
-    <button class="btn btn-gold btn-block" onclick="submitPinModal()">Konfirmasi</button>
-    <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="cancelPinModal()">Batal</button>
+    <button class="btn btn-gold btn-block" id="pinModalConfirmBtn" onclick="submitPinModal()">Konfirmasi</button>
+    <button class="btn btn-ghost btn-block" style="margin-top:8px;" id="pinModalCancelBtn" onclick="cancelPinModal()">Batal</button>
   </div>
 </div>
 
@@ -1574,30 +1574,50 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   // ============================================================
   // PIN AKSI SENSITIF — gerbang buat hapus data, tutup sesi, ubah
   // pengaturan. PIN asli tidak pernah ada di frontend; verifikasi
-  // selalu tanya server (verifikasiPin), aman walau HP dipinjam.
+  // dilakukan DI DALAM aksi backend-nya sendiri (bukan panggilan
+  // terpisah), jadi cuma 1x round-trip ke server — bukan 2x — biar
+  // gak lama, dan tombol Konfirmasi kasih spinner selama nunggu.
+  // onValid(pin) WAJIB mengembalikan Promise dari gasCall-nya.
   // ============================================================
   var pinPendingCallback = null;
 
   function requirePin(onValid){
-    if (!BOOT || !BOOT.pengaturan || !BOOT.pengaturan.pinAktif){ onValid(); return; }
+    if (!BOOT || !BOOT.pengaturan || !BOOT.pengaturan.pinAktif){ onValid(''); return; }
     pinPendingCallback = onValid;
-    document.getElementById('pinModalInput').value = '';
+    var input = document.getElementById('pinModalInput');
+    input.value = '';
+    input.disabled = false;
+    document.getElementById('pinModalCancelBtn').disabled = false;
     document.getElementById('pinModal').classList.add('show');
-    setTimeout(function(){ document.getElementById('pinModalInput').focus(); }, 100);
+    setTimeout(function(){ input.focus(); }, 100);
   }
 
   function submitPinModal(){
-    var pin = document.getElementById('pinModalInput').value.trim();
+    var input = document.getElementById('pinModalInput');
+    var btn = document.getElementById('pinModalConfirmBtn');
+    var pin = input.value.trim();
     if (!pin){ toast('Isi PIN dulu ya.'); return; }
-    gasCall('verifikasiPin', [pin]).then(function(res){
+    var cb = pinPendingCallback;
+    if (!cb){ document.getElementById('pinModal').classList.remove('show'); return; }
+    setBtnBusy_(btn, true);
+    input.disabled = true;
+    document.getElementById('pinModalCancelBtn').disabled = true;
+    Promise.resolve().then(function(){ return cb(pin); }).then(function(){
+      // Sukses: aksinya sudah selesai dijalankan di server, tutup modal.
+      pinPendingCallback = null;
+      setBtnBusy_(btn, false);
+      input.disabled = false;
+      document.getElementById('pinModalCancelBtn').disabled = false;
       document.getElementById('pinModal').classList.remove('show');
-      if (res && res.valid){
-        var cb = pinPendingCallback; pinPendingCallback = null;
-        if (cb) cb();
-      } else {
-        toast('PIN salah.');
-      }
-    }).catch(function(err){ toast('Gagal cek PIN: ' + err.message); });
+    }).catch(function(err){
+      // Gagal (PIN salah atau error lain): modal tetap terbuka biar
+      // user bisa coba lagi, spinner berhenti, kasih tahu alasannya.
+      setBtnBusy_(btn, false);
+      input.disabled = false;
+      document.getElementById('pinModalCancelBtn').disabled = false;
+      input.value = ''; input.focus();
+      toast(err.message || 'Gagal, coba lagi.');
+    });
   }
 
   function cancelPinModal(){
@@ -1608,25 +1628,25 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function savePinSetting(){
     var pinBaru = document.getElementById('setPinBaru').value.trim();
     if (!pinBaru && !BOOT.pengaturan.pinAktif){ toast('Isi PIN dulu ya.'); return; }
-    requirePin(function(){
-      gasCall('simpanPengaturan', ['PinAksi', pinBaru]).then(function(){
+    requirePin(function(pin){
+      return gasCall('simpanPengaturanAman', ['PinAksi', pinBaru, pin]).then(function(){
         BOOT.pengaturan.pinAktif = !!pinBaru;
         document.getElementById('setPinBaru').value = '';
         toast(pinBaru ? 'PIN tersimpan.' : 'Proteksi PIN dimatikan.');
-      }).catch(function(err){ toast('Gagal simpan PIN: ' + err.message); });
+      });
     });
   }
 
   function hapusKasir(nama){
-    requirePin(function(){
-      if (!confirm('Hapus kasir "'+nama+'" dari daftar?')) return;
+    requirePin(function(pin){
+      if (!confirm('Hapus kasir "'+nama+'" dari daftar?')) return Promise.resolve();
       var daftar = ((BOOT && BOOT.pengaturan && BOOT.pengaturan.daftarKasir) || []).filter(function(k){ return k !== nama; });
-      gasCall('simpanPengaturan', ['DaftarKasir', JSON.stringify(daftar)]).then(function(){
+      return gasCall('simpanPengaturanAman', ['DaftarKasir', JSON.stringify(daftar), pin]).then(function(){
         BOOT.pengaturan.daftarKasir = daftar;
         renderKasirManageList();
         renderKasirSelect();
         toast('Kasir dihapus');
-      }).catch(function(err){ toast('Gagal hapus kasir: '+err.message); });
+      });
     });
   }
 
@@ -1663,16 +1683,16 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
 
   function hapusMenuItem(id, btnEl){
     if (!confirm('Hapus menu ini dari daftar?')) return;
-    requirePin(function(){ hapusMenuItemLanjut_(id, btnEl); });
+    requirePin(function(pin){ return hapusMenuItemLanjut_(id, btnEl, pin); });
   }
-  function hapusMenuItemLanjut_(id, btnEl){
+  function hapusMenuItemLanjut_(id, btnEl, pin){
     setBtnBusy_(btnEl, true);
-    gasCall('hapusEntri', ['MENU', id]).then(function(){
+    return gasCall('hapusEntri', ['MENU', id, pin]).then(function(){
       BOOT.daftarMenu = (BOOT.daftarMenu||[]).filter(function(m){ return m.id !== id; });
       renderMenuQuickGrid();
       renderMenuList();
       toast('Menu dihapus');
-    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus menu: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); throw err; });
   }
 
   // ============================================================
@@ -1985,17 +2005,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
 
   function deleteFeedEntry(id, type, btnEl){
     if (!confirm('Hapus catatan ini?')) return;
-    requirePin(function(){ deleteFeedEntryLanjut_(id, type, btnEl); });
+    requirePin(function(pin){ return deleteFeedEntryLanjut_(id, type, btnEl, pin); });
   }
-  function deleteFeedEntryLanjut_(id, type, btnEl){
+  function deleteFeedEntryLanjut_(id, type, btnEl, pin){
     setBtnBusy_(btnEl, true);
     var sheetKey = type === 'modal' ? 'MODAL' : (type === 'pemasukanLain' ? 'PEMASUKAN_LAIN' : 'TRANSAKSI');
-    gasCall('hapusEntri', [sheetKey, id]).then(function(){
+    return gasCall('hapusEntri', [sheetKey, id, pin]).then(function(){
       feedEntries = feedEntries.filter(function(e){ return e.clientId !== id; });
       renderFeed();
       loadDashboard();
       toast('Catatan dihapus');
-    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); throw err; });
   }
 
   // ============================================================
@@ -2021,17 +2041,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function tutupSesiSekarang(btnEl){
     if (!BOOT.sesiAktif) return;
     if (!confirm('Tutup sesi "'+BOOT.sesiAktif.Nama+'"? Kamu masih bisa lihat riwayatnya nanti.')) return;
-    requirePin(function(){ tutupSesiLanjut_(btnEl); });
+    requirePin(function(pin){ return tutupSesiLanjut_(btnEl, pin); });
   }
-  function tutupSesiLanjut_(btnEl){
+  function tutupSesiLanjut_(btnEl, pin){
     var id = BOOT.sesiAktif.ID;
     setBtnBusy_(btnEl, true);
-    gasCall('tutupSesi', [id]).then(function(){
+    return gasCall('tutupSesi', [id, pin]).then(function(){
       BOOT.sesiAktif = null;
       renderSesiBar();
       toast('Sesi ditutup');
       loadDashboard();
-    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal menutup sesi: ' + err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); throw err; });
   }
 
   // ============================================================
@@ -2217,12 +2237,14 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   function savePengaturan(){
     var modalAwal = parseRibuan(document.getElementById('setModalAwal').value);
     var sisa = parseRibuan(document.getElementById('setSisaTahunLalu').value);
-    requirePin(function(){
-      gasCall('simpanPengaturan', ['ModalAwal', modalAwal]).then(function(){
+    requirePin(function(pin){
+      return Promise.all([
+        gasCall('simpanPengaturanAman', ['ModalAwal', modalAwal, pin]),
+        gasCall('simpanPengaturanAman', ['SisaTahunLalu', sisa, pin])
+      ]).then(function(){
         toast('Pengaturan tersimpan');
         loadDashboard();
-      }).catch(function(err){ toast('Gagal: '+err.message); });
-      gasCall('simpanPengaturan', ['SisaTahunLalu', sisa]).catch(function(){});
+      });
     });
   }
 
@@ -2687,11 +2709,11 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
   // dan otomatis menampilkan sisa item grup (atau tertutup kalau habis).
   function deleteGroupItem(id, btnEl){
     if (!confirm('Hapus item ini dari transaksi?')) return;
-    requirePin(function(){ deleteGroupItemLanjut_(id, btnEl); });
+    requirePin(function(pin){ return deleteGroupItemLanjut_(id, btnEl, pin); });
   }
-  function deleteGroupItemLanjut_(id, btnEl){
+  function deleteGroupItemLanjut_(id, btnEl, pin){
     setBtnBusy_(btnEl, true);
-    gasCall('hapusEntri', ['TRANSAKSI', id]).then(function(){
+    return gasCall('hapusEntri', ['TRANSAKSI', id, pin]).then(function(){
       toast('Item dihapus');
       if (groupDetailState.context === 'feed'){
         feedEntries = feedEntries.filter(function(e){ return e.clientId !== id; });
@@ -2709,17 +2731,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
           else closeModal('groupDetailModal');
         });
       }
-    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); throw err; });
   }
 
   function hapusLogEntry(sheetKey, id, elId, btnEl){
     var label = (sheetKey === 'INVENTARIS') ? 'inventaris' : 'kegiatan';
     if (!confirm('Hapus data '+label+' ini?')) return;
-    requirePin(function(){ hapusLogEntryLanjut_(sheetKey, id, elId, btnEl, label); });
+    requirePin(function(pin){ return hapusLogEntryLanjut_(sheetKey, id, elId, btnEl, label, pin); });
   }
-  function hapusLogEntryLanjut_(sheetKey, id, elId, btnEl, label){
+  function hapusLogEntryLanjut_(sheetKey, id, elId, btnEl, label, pin){
     setBtnBusy_(btnEl, true);
-    gasCall('hapusEntri', [sheetKey, id]).then(function(){
+    return gasCall('hapusEntri', [sheetKey, id, pin]).then(function(){
       if (elId === 'inventarisList' && DASH){
         DASH.inventaris = (DASH.inventaris||[]).filter(function(x){ return x.id !== id; });
       } else if (elId === 'kegiatanList' && DASH){
@@ -2728,7 +2750,7 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       if (DASH) renderLogList(elId, elId === 'inventarisList' ? DASH.inventaris : DASH.kegiatan);
       toast('Data '+label+' dihapus');
       loadDashboard(); // sinkronkan ulang total & saldo
-    }).catch(function(err){ setBtnBusy_(btnEl, false); toast('Gagal hapus: '+err.message); });
+    }).catch(function(err){ setBtnBusy_(btnEl, false); throw err; });
   }
 
   function renderRiwayat(){
@@ -3177,14 +3199,15 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       ['InfoRekening', document.getElementById('setInfoRekening').value.trim()],
       ['InfoGopay', document.getElementById('setInfoGopay').value.trim()]
     ];
-    requirePin(function(){
-      pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
-      if (BOOT && BOOT.pengaturan){
-        BOOT.pengaturan.guruWaNomor = pairs[0][1];
-        BOOT.pengaturan.infoRekening = pairs[1][1];
-        BOOT.pengaturan.infoGopay = pairs[2][1];
-      }
-      toast('Kontak & info pembayaran tersimpan.');
+    requirePin(function(pin){
+      return Promise.all(pairs.map(function(p){ return gasCall('simpanPengaturanAman', [p[0], p[1], pin]); })).then(function(){
+        if (BOOT && BOOT.pengaturan){
+          BOOT.pengaturan.guruWaNomor = pairs[0][1];
+          BOOT.pengaturan.infoRekening = pairs[1][1];
+          BOOT.pengaturan.infoGopay = pairs[2][1];
+        }
+        toast('Kontak & info pembayaran tersimpan.');
+      });
     });
   }
 
@@ -3205,16 +3228,17 @@ button.is-busy{ opacity:.6; cursor:progress !important; }
       ['StrukBtServiceUUID', document.getElementById('setStrukBtService').value.trim()],
       ['StrukBtCharUUID', document.getElementById('setStrukBtChar').value.trim()]
     ];
-    requirePin(function(){
-      pairs.forEach(function(p){ gasCall('simpanPengaturan', p).catch(function(){}); });
-      if (BOOT && BOOT.pengaturan){
-        BOOT.pengaturan.strukSekolah = pairs[0][1]; BOOT.pengaturan.strukProgram = pairs[1][1];
-        BOOT.pengaturan.strukAlamat = pairs[2][1]; BOOT.pengaturan.strukKontak = pairs[3][1];
-        BOOT.pengaturan.strukFooter = pairs[4][1]; BOOT.pengaturan.strukLebarKertas = pairs[5][1];
-        BOOT.pengaturan.strukMetode = pairs[6][1]; BOOT.pengaturan.strukBtServiceUUID = pairs[7][1];
-        BOOT.pengaturan.strukBtCharUUID = pairs[8][1];
-      }
-      toast('Identitas struk tersimpan.');
+    requirePin(function(pin){
+      return Promise.all(pairs.map(function(p){ return gasCall('simpanPengaturanAman', [p[0], p[1], pin]); })).then(function(){
+        if (BOOT && BOOT.pengaturan){
+          BOOT.pengaturan.strukSekolah = pairs[0][1]; BOOT.pengaturan.strukProgram = pairs[1][1];
+          BOOT.pengaturan.strukAlamat = pairs[2][1]; BOOT.pengaturan.strukKontak = pairs[3][1];
+          BOOT.pengaturan.strukFooter = pairs[4][1]; BOOT.pengaturan.strukLebarKertas = pairs[5][1];
+          BOOT.pengaturan.strukMetode = pairs[6][1]; BOOT.pengaturan.strukBtServiceUUID = pairs[7][1];
+          BOOT.pengaturan.strukBtCharUUID = pairs[8][1];
+        }
+        toast('Identitas struk tersimpan.');
+      });
     });
   }
 
