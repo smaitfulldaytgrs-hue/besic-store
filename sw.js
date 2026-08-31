@@ -7,7 +7,7 @@
 // yang ditampilkan selalu yang paling baru dari spreadsheet.
 // ============================================================
 
-var CACHE_NAME = 'besic-store-shell-v25';
+var CACHE_NAME = 'besic-store-shell-v26';
 var PRECACHE_URLS = [
   './',
   './index.html',
